@@ -479,9 +479,9 @@ ferr/
 
 ### Après chaque crate / modification
 
-- [ ] `cargo build -p <crate>` → 0 erreur, 0 warning
-- [ ] `cargo test -p <crate>` → tous les tests passent
-- [ ] Types publics exportés correctement
+- [x] `cargo build -p <crate>` → 0 erreur, 0 warning
+- [x] `cargo test -p <crate>` → tous les tests passent
+- [x] Types publics exportés correctement
 
 ### Tests par fonctionnalité
 
@@ -506,10 +506,10 @@ ferr/
 
 ### Critères de succès finaux
 
-- [ ] `cargo build` racine → 0 erreur, 0 warning
-- [ ] `cargo test` racine → tous les tests au vert
-- [ ] `ferr --help` liste toutes les nouvelles commandes
-- [ ] `ferr copy --help` liste toutes les nouvelles options
+- [x] `cargo build` racine → 0 erreur, 0 warning
+- [x] `cargo test` racine → tous les tests au vert
+- [x] `ferr --help` liste toutes les nouvelles commandes
+- [x] `ferr copy --help` liste toutes les nouvelles options
 
 ---
 

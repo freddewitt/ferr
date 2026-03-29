@@ -1,209 +1,134 @@
-# ferr
+<div align="center">
+  <h1>ferr</h1>
+  <p><strong>Secure, Byte-for-Byte CLI File Copy Tool</strong></p>
 
-[![CI](https://github.com/freddewitt/ferr/actions/workflows/ci.yml/badge.svg)](https://github.com/freddewitt/ferr/actions/workflows/ci.yml)
+  [![CI](https://github.com/freddewitt/ferr/actions/workflows/ci.yml/badge.svg)](https://github.com/freddewitt/ferr/actions/workflows/ci.yml)
+</div>
 
-Outil CLI de copie sécurisée de fichiers vidéo conçu pour les **DIT** (Digital Imaging Technician) et les professionnels de l'audiovisuel.
+<br>
 
-- Copie de carte mémoire vers une ou plusieurs destinations en parallèle
-- Vérification hash (XxHash64 ou SHA-256) à chaque octet
-- Redondance PAR2 via `par2cmdline`
-- Détection de format caméra (BRAW, R3D, ARRI MXF, Sony XOCN, Canon XF, ProRes)
-- Manifest JSON signé à chaque session
-- Export ALE (Avid) et CSV pour post-production
-- Rapport PDF horodaté
-- Historique SQLite des sessions
-- Mode watch : copie automatique à l'insertion d'un volume
-- Profils de copie persistants
-- NO_COLOR, `--quiet`, `--dry-run`
+> [!WARNING]
+> **Disclaimer: Personal Project & Vibe Coding**  
+> I created this tool strictly for my own personal use. I am not a professional software developer, and this entire project is the result of "vibe coding" (built through exploration and AI assistance).  
+> The code is provided **"as is"**, without any warranties, safety guarantees, or liability. Use it at your own risk.
+
+<br>
+
+**ferr** is a secure command-line file copy tool designed to guarantee absolute data integrity when transferring critical files across drives. While built as a general-purpose secure copy software, it also features advanced workflow automation options tailored specifically for **DITs** (Digital Imaging Technicians).
+
+## ✨ Key Features
+
+- **Parallel Transfers**: Copy from any source volume to one or multiple destinations simultaneously.
+- **Cryptographic Hashing**: Byte-for-byte hash verification (`XXH64` or `SHA-256`) calculated seamlessly on the fly.
+- **Data Redundancy**: Automatic `par2` parity generation via `par2cmdline` to prevent data rot.
+- **Session Manifests**: Cryptographically signed JSON manifests generated at the end of every transfer.
+- **Metadata Preservation**: Seamlessly carries over file timestamps and extended attributes (macOS `xattr`).
+- **DIT Automation**: Detects cinema camera formats (BRAW, R3D, ARRI, Sony, Canon, ProRes) and offers dynamic `{date}_{camera}_{clip}` renaming templates.
+- **Post-Production Ready**: One-click ALE (Avid) and CSV exports, complete with time-stamped PDF reports.
+- **SQLite History**: Powerful local database to track all previous sessions and provide intelligent transfer deduplication.
+- **Watch Mode**: Set and forget. Automatically triggers copies as soon as a new volume is inserted.
 
 ---
 
-## Prérequis
+## 🚀 Installation & Prerequisites
 
-| Dépendance | Requis | Installation |
-|-----------|--------|-------------|
-| Rust stable ≥ 1.75 | Oui | `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh` |
-| `par2cmdline` | Non (PAR2 désactivé si absent) | `brew install par2` / `apt install par2` / `winget install par2cmdline` |
+**Prerequisites:**
+- **Rust stable ≥ 1.75** (`curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`)
+- **par2cmdline** *(Optional but recommended for redundancy)*: `brew install par2`
 
----
-
-## Installation
-
+**Install from source:**
 ```sh
-# Depuis les sources
 git clone https://github.com/your-org/ferr
 cd ferr
 cargo install --path ferr-cli
 
-# Vérifier
+# Verify installation
 ferr --version
 ```
 
 ---
 
-## Utilisation rapide
+## 📖 Quick Reference Guide
 
-### Copie
+### Copying Files
 
 ```sh
-# Copie de base (hash XxHash64, manifest JSON)
-ferr copy /Volumes/A001 /mnt/backup
+# Basic copy with XXH64 hashing and JSON manifest creation
+ferr copy /Volumes/DriveA /mnt/backup
 
-# Copie miroir vers deux destinations avec SHA-256 et PAR2 10 %
-ferr copy /Volumes/A001 /mnt/ssd1 --dest2 /mnt/ssd2 --hash sha256 --par2 10
+# Mirror copy to two destinations with SHA-256 and 10% PAR2 redundancy
+ferr copy /Volumes/DriveA /mnt/ssd1 --dest2 /mnt/ssd2 --hash sha256 --par2 10
 
-# Mode caméra + renommage + éjection automatique
-ferr copy /Volumes/A001 /mnt/raid \
+# DIT Mode: Detect camera format, rename files on the fly, and auto-eject volume
+ferr copy /Volumes/CARD /mnt/raid \
     --camera \
     --rename "{date}_{camera}_{reel}_{clip}{ext}" \
     --eject
 
-# Simulation avant la vraie copie
-ferr copy /Volumes/A001 /mnt/backup --dry-run
-
-# Reprise d'une copie interrompue
-ferr copy /Volumes/A001 /mnt/backup --resume
-
-# Avec un profil sauvegardé
-ferr copy /Volumes/A001 /ignored --profile onset
+# Dry-run copy (simulates the entire process without writing anywhere)
+ferr copy /Volumes/DriveA /mnt/backup --dry-run
 ```
 
-### Vérification et scan
+### Verification & Bit-Rot Scanning
 
 ```sh
-# Vérifier depuis la source
-ferr verify /Volumes/A001 /mnt/backup
+# Verify a destination folder against its source
+ferr verify /Volumes/DriveA /mnt/backup
 
-# Vérifier depuis un manifest
+# Verify a backup using its previously generated JSON manifest
 ferr verify /mnt/backup/ferr-manifest.json /mnt/backup
 
-# Détecter le bit rot (comparaison hash vs manifest)
+# Scan for bit-rot or data degradation on cold storage
 ferr scan /mnt/backup
-ferr scan /mnt/backup --since 2025-01-01T00:00:00Z  # incrémental
 ```
 
-### Export et rapport
+### Automation (Watch Mode)
+
+Monitor a directory (like `/Volumes` on macOS) and automatically fire a dual-destination copy every time a new memory card is mounted.
 
 ```sh
-# Export ALE pour Avid Media Composer
-ferr export ferr-manifest.json --format ale --output session.ale
-
-# Export CSV
-ferr export ferr-manifest.json --format csv --output session.csv
-
-# Rapport PDF
-ferr report ferr-manifest.json --output report.pdf
-```
-
-### Watch — copie automatique
-
-```sh
-# Surveiller /Volumes, copier vers deux SSD à chaque insertion de carte
 ferr watch /Volumes --dest /mnt/ssd1 --dest /mnt/ssd2 --camera --eject
 ```
 
-### Profils
+### Reporting & Export
 
 ```sh
-ferr profile save onset --dest /mnt/ssd1 --dest /mnt/ssd2 --hash sha256 --par2 10 --camera --eject
-ferr profile list
-ferr profile show onset
-ferr profile delete onset
+# Export ALE for Avid Media Composer
+ferr export ferr-manifest.json --format ale --output session.ale
+
+# Generate an elegant PDF report
+ferr report ferr-manifest.json --output report.pdf
 ```
 
-### Historique
+### Session Profiles & History
 
 ```sh
+# Save your exact configuration parameters as a reusable profile
+ferr profile save backup_template --dest /mnt/ssd1 --dest /mnt/ssd2 --hash sha256 --par2 10
+
+# Run a copy using your saved profile
+ferr copy /Volumes/DriveA /ignored --profile backup_template
+
+# Search through your SQLite transfer history
 ferr history list
-ferr history list --limit 50 --since 2025-01-01T00:00:00Z
-ferr history show 42
 ferr history find A001_C001.braw
 ```
 
 ---
 
-## Architecture
+## 🏗 System Architecture
 
-```
-ferr/
-├── ferr-hash       # Hashing streaming — XxHash64 (xxhash-rust) et SHA-256 (sha2)
-├── ferr-report     # Manifest JSON + export ALE/CSV
-├── ferr-transfer   # Copie atomique (tmp → rename), métadonnées, xattrs (macOS)
-├── ferr-verify     # Vérification de répertoires, manifests et scan bit rot
-├── ferr-par2       # Génération/vérification/réparation PAR2 via subprocess par2cmdline
-├── ferr-camera     # Détection de format caméra, scan de clips, templates de renommage
-├── ferr-session    # Historique SQLite des sessions (rusqlite bundled)
-├── ferr-notify     # Notifications système (notify-rust)
-├── ferr-pdf        # Rapports PDF (printpdf)
-├── ferr-core       # Orchestration : run_copy, run_watch, dry_run, profils, espaces disque
-└── ferr-cli        # Binaire `ferr` — clap 4, indicatif, console
-```
+Under the hood, `ferr` uses a multi-crate Cargo workspace to isolate its logic into solid, testable components:
 
-### Flux de copie (`ferr copy`)
-
-```
-[Source] ──► collect_files
-               │
-               ├─► check_space (libc::statvfs / GetDiskFreeSpaceExW)
-               │
-               ├─► [dédup] find_file_by_hash → session SQLite
-               │
-               ├─► copy_file (atomic write + fsync)
-               │   └─► hash_file (XxHash64 / SHA-256)
-               │   └─► copy_metadata (filetime + xattrs)
-               │
-               ├─► [PAR2] par2 create subprocess
-               │
-               ├─► save_manifest → ferr-manifest.json
-               ├─► generate_report → report.pdf
-               ├─► record_session → history.db
-               └─► notify_done → notification système
-```
+- **`ferr-core`**: The main orchestrator (handles validation, dry-runs, disk space logic).
+- **`ferr-transfer`**: Manages atomic file copying to prevent partial writes.
+- **`ferr-hash`**: High-performance streaming hashing.
+- **`ferr-camera`**: Heuristic format detection and renaming engine.
+- **`ferr-par2`** / **`ferr-report`** / **`ferr-verify`**: Parity wrappers, JSON/ALE generation, and cold-storage scanning tools.
+- **`ferr-session`**: Bundled local SQLite `history.db` tracking deduplication.
 
 ---
 
-## Variables d'environnement
+## 📜 License
 
-| Variable | Valeur par défaut | Description |
-|----------|-------------------|-------------|
-| `NO_COLOR` | — | Désactive toutes les couleurs ANSI |
-| `FERR_DATA_DIR` | `~/.local/share/ferr/` (Unix) / `%APPDATA%\ferr\` (Windows) | Répertoire de la base de sessions |
-| `FERR_PAR2_STUB` | — | Force le mode stub PAR2 (CI sans par2cmdline) |
-
----
-
-## Codes de sortie
-
-| Code | Signification |
-|------|--------------|
-| 0 | Succès |
-| 1 | Avertissement (fichiers manquants, bit rot détecté) |
-| 2 | Erreur fatale |
-| 3 | Irrécupérable (PAR2 insuffisant) |
-
----
-
-## Développement
-
-```sh
-# Tests complets (unitaires + intégration)
-cargo test
-
-# Tests d'intégration PAR2 (nécessite par2cmdline)
-cargo test -p ferr-par2 -- --include-ignored
-
-# Build release
-cargo build --release
-
-# Linting
-cargo clippy --workspace --all-targets -- -D warnings
-
-# Format
-cargo fmt --all
-```
-
----
-
-## Licence
-
-MIT — voir [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE) for more details.

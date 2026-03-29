@@ -319,7 +319,6 @@ fn dry_run_writes_nothing() {
 
     assert_eq!(report.total_files, 3);
     assert!(report.total_size_bytes > 0);
-    assert!(report.estimated_secs >= 0);
 
     // Aucun fichier créé à la destination
     assert!(
@@ -415,7 +414,7 @@ fn pdf_report_is_non_empty() {
     let dst = tmp("pdf_dst");
     make_source(&src, 5, 1024);
 
-    let manifest = ferr_core::run_copy(job(src.clone(), dst.clone()), |_| {}).unwrap();
+    let _manifest = ferr_core::run_copy(job(src.clone(), dst.clone()), |_| {}).unwrap();
     let manifest_path = dst.join("ferr-manifest.json");
     let loaded = ferr_report::load_manifest(&manifest_path).unwrap();
 
