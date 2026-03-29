@@ -697,7 +697,7 @@ fn cmd_watch(
         println!("  En attente de volumes… (Ctrl+C pour quitter)");
     }
 
-    ferr_core::run_watch(config, |event| {
+    ferr_core::run_watch(config, move |event| {
         if quiet {
             return;
         }

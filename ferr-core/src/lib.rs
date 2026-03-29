@@ -283,6 +283,7 @@ pub struct CopyJobTemplate {
     pub auto_eject: bool,
 }
 
+#[derive(Clone)]
 pub struct WatchConfig {
     pub mount_point: PathBuf,
     pub copy_job: CopyJobTemplate,
@@ -316,7 +317,7 @@ pub enum WatchEvent {
 
 pub fn run_watch(
     config: WatchConfig,
-    on_event: impl Fn(WatchEvent) + Send + Sync,
+    on_event: impl Fn(WatchEvent) + Send + Sync + Clone + 'static,
 ) -> anyhow::Result<()> {
     use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
     use std::sync::mpsc;
@@ -347,67 +348,76 @@ pub fn run_watch(
                 if !path.is_dir() {
                     continue;
                 }
-                let name = path
-                    .file_name()
-                    .map(|n| n.to_string_lossy().into_owned())
-                    .unwrap_or_else(|| path.to_string_lossy().into_owned());
+                let config_thread = config.clone();
+                let on_event_thread = on_event.clone();
+                let event_path = path.clone();
 
-                let size = dir_size(&path).unwrap_or(0);
-                on_event(WatchEvent::VolumeDetected {
-                    name: name.clone(),
-                    path: path.clone(),
-                    size,
-                });
+                std::thread::spawn(move || {
+                    let name = event_path
+                        .file_name()
+                        .map(|n| n.to_string_lossy().into_owned())
+                        .unwrap_or_else(|| event_path.to_string_lossy().into_owned());
 
-                // Attendre delay_secs
-                std::thread::sleep(std::time::Duration::from_secs(config.delay_secs));
-                on_event(WatchEvent::CopyStarting {
-                    volume: name.clone(),
-                });
+                    let size = dir_size(&event_path).unwrap_or(0);
+                    on_event_thread(WatchEvent::VolumeDetected {
+                        name: name.clone(),
+                        path: event_path.clone(),
+                        size,
+                    });
 
-                let hash_algo = match config.copy_job.hash_algo_str.as_str() {
-                    "sha256" => HashAlgo::Sha256,
-                    _ => HashAlgo::XxHash64,
-                };
+                    // Attendre delay_secs
+                    std::thread::sleep(std::time::Duration::from_secs(config_thread.delay_secs));
+                    on_event_thread(WatchEvent::CopyStarting {
+                        volume: name.clone(),
+                    });
 
-                let job = CopyJob {
-                    source: path.clone(),
-                    destinations: config.copy_job.destinations.clone(),
-                    hash_algo,
-                    resume: config.copy_job.resume,
-                    par2_redundancy: config.copy_job.par2_redundancy,
-                    preserve_metadata: config.copy_job.preserve_metadata,
-                    camera_mode: config.copy_job.camera_mode,
-                    rename_template: config.copy_job.rename_template.clone(),
-                    auto_eject: false,
-                    ..Default::default()
-                };
+                    let hash_algo = match config_thread.copy_job.hash_algo_str.as_str() {
+                        "sha256" => HashAlgo::Sha256,
+                        _ => HashAlgo::XxHash64,
+                    };
 
-                match run_copy(job, |p| on_event(WatchEvent::CopyProgress(p))) {
-                    Ok(manifest) => {
-                        on_event(WatchEvent::CopyDone {
-                            volume: name.clone(),
-                            manifest,
-                        });
-                        if config.auto_eject || config.copy_job.auto_eject {
-                            match eject_volume(&path) {
-                                Ok(()) => on_event(WatchEvent::Ejected { volume: name }),
-                                Err(e) => on_event(WatchEvent::Error {
-                                    volume: name,
-                                    error: format!("Éjection : {e}"),
-                                }),
+                    let job = CopyJob {
+                        source: event_path.clone(),
+                        destinations: config_thread.copy_job.destinations.clone(),
+                        hash_algo,
+                        resume: config_thread.copy_job.resume,
+                        par2_redundancy: config_thread.copy_job.par2_redundancy,
+                        preserve_metadata: config_thread.copy_job.preserve_metadata,
+                        camera_mode: config_thread.copy_job.camera_mode,
+                        rename_template: config_thread.copy_job.rename_template.clone(),
+                        auto_eject: false,
+                        ..Default::default()
+                    };
+
+                    match run_copy(job, {
+                        let on_evt = on_event_thread.clone();
+                        move |p| on_evt(WatchEvent::CopyProgress(p))
+                    }) {
+                        Ok(manifest) => {
+                            on_event_thread(WatchEvent::CopyDone {
+                                volume: name.clone(),
+                                manifest,
+                            });
+                            if config_thread.auto_eject || config_thread.copy_job.auto_eject {
+                                match eject_volume(&event_path) {
+                                    Ok(()) => on_event_thread(WatchEvent::Ejected { volume: name }),
+                                    Err(e) => on_event_thread(WatchEvent::Error {
+                                        volume: name,
+                                        error: format!("Éjection : {e}"),
+                                    }),
+                                }
                             }
                         }
+                        Err(e) => {
+                            on_event_thread(WatchEvent::Error {
+                                volume: name,
+                                error: e.to_string(),
+                            });
+                        }
                     }
-                    Err(e) => {
-                        on_event(WatchEvent::Error {
-                            volume: name,
-                            error: e.to_string(),
-                        });
-                    }
-                }
 
-                on_event(WatchEvent::Waiting);
+                    on_event_thread(WatchEvent::Waiting);
+                });
             }
         }
     }
