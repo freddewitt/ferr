@@ -1,7 +1,11 @@
 /// Envoie une notification système "opération terminée".
 /// Ne panique jamais — les erreurs de notification sont ignorées silencieusement.
 pub fn notify_done(title: &str, message: &str, success: bool) -> anyhow::Result<()> {
-    let subtitle = if success { "✓ Succès" } else { "⚠ Terminé avec erreurs" };
+    let subtitle = if success {
+        "✓ Succès"
+    } else {
+        "⚠ Terminé avec erreurs"
+    };
     send_notification(title, subtitle, message)
 }
 

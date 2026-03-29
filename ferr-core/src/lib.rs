@@ -1,8 +1,8 @@
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-pub use ferr_hash::HashAlgo;
 pub use ferr_camera::{CameraFormat, Clip};
+pub use ferr_hash::HashAlgo;
 
 // ---------------------------------------------------------------------------
 // Énumérations et structures publiques
@@ -18,49 +18,49 @@ pub enum CopyPhase {
 
 #[derive(Debug, Clone)]
 pub struct CopyProgress {
-    pub current_file:    PathBuf,
+    pub current_file: PathBuf,
     pub file_bytes_done: u64,
     pub file_bytes_total: u64,
     pub total_files_done: usize,
-    pub total_files:     usize,
+    pub total_files: usize,
     pub speed_bytes_sec: u64,
-    pub errors:          usize,
-    pub phase:           CopyPhase,
-    pub dedup_skipped:   usize,
+    pub errors: usize,
+    pub phase: CopyPhase,
+    pub dedup_skipped: usize,
 }
 
 pub struct CopyJob {
-    pub source:            PathBuf,
-    pub destinations:      Vec<PathBuf>,
-    pub hash_algo:         HashAlgo,
-    pub resume:            bool,
-    pub par2_redundancy:   Option<u8>,
+    pub source: PathBuf,
+    pub destinations: Vec<PathBuf>,
+    pub hash_algo: HashAlgo,
+    pub resume: bool,
+    pub par2_redundancy: Option<u8>,
     pub preserve_metadata: bool,
-    pub camera_mode:       bool,
-    pub rename_template:   Option<String>,
-    pub auto_eject:        bool,
-    pub dedup:             bool,
-    pub generate_pdf:      bool,
-    pub send_notify:       bool,
-    pub record_session:    bool,
+    pub camera_mode: bool,
+    pub rename_template: Option<String>,
+    pub auto_eject: bool,
+    pub dedup: bool,
+    pub generate_pdf: bool,
+    pub send_notify: bool,
+    pub record_session: bool,
 }
 
 impl Default for CopyJob {
     fn default() -> Self {
         Self {
-            source:            PathBuf::new(),
-            destinations:      Vec::new(),
-            hash_algo:         HashAlgo::XxHash64,
-            resume:            false,
-            par2_redundancy:   None,
+            source: PathBuf::new(),
+            destinations: Vec::new(),
+            hash_algo: HashAlgo::XxHash64,
+            resume: false,
+            par2_redundancy: None,
             preserve_metadata: true,
-            camera_mode:       false,
-            rename_template:   None,
-            auto_eject:        false,
-            dedup:             false,
-            generate_pdf:      true,
-            send_notify:       true,
-            record_session:    true,
+            camera_mode: false,
+            rename_template: None,
+            auto_eject: false,
+            dedup: false,
+            generate_pdf: true,
+            send_notify: true,
+            record_session: true,
         }
     }
 }
@@ -70,11 +70,11 @@ impl Default for CopyJob {
 // ---------------------------------------------------------------------------
 
 pub struct SpaceCheck {
-    pub destination:     PathBuf,
+    pub destination: PathBuf,
     pub available_bytes: u64,
-    pub required_bytes:  u64,
-    pub ok:              bool,
-    pub delta_bytes:     i64,
+    pub required_bytes: u64,
+    pub ok: bool,
+    pub delta_bytes: i64,
 }
 
 pub fn check_space(
@@ -94,11 +94,11 @@ pub fn check_space(
         let available = available_space(&avail_path)?;
         let ok = available >= required;
         checks.push(SpaceCheck {
-            destination:     dest.clone(),
+            destination: dest.clone(),
             available_bytes: available,
-            required_bytes:  required,
+            required_bytes: required,
             ok,
-            delta_bytes:     available as i64 - required as i64,
+            delta_bytes: available as i64 - required as i64,
         });
     }
     Ok(checks)
@@ -110,13 +110,13 @@ pub fn check_space(
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CopyProfile {
-    pub name:            String,
-    pub created_at:      String,
-    pub destinations:    Vec<PathBuf>,
-    pub hash_algo:       String,
+    pub name: String,
+    pub created_at: String,
+    pub destinations: Vec<PathBuf>,
+    pub hash_algo: String,
     pub par2_redundancy: Option<u8>,
-    pub camera_mode:     bool,
-    pub auto_eject:      bool,
+    pub camera_mode: bool,
+    pub auto_eject: bool,
 }
 
 fn profiles_dir() -> PathBuf {
@@ -126,7 +126,10 @@ fn profiles_dir() -> PathBuf {
     #[cfg(unix)]
     {
         let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-        PathBuf::from(home).join(".config").join("ferr").join("profiles")
+        PathBuf::from(home)
+            .join(".config")
+            .join("ferr")
+            .join("profiles")
     }
     #[cfg(not(unix))]
     {
@@ -186,10 +189,7 @@ pub fn eject_volume(mount_point: &Path) -> anyhow::Result<()> {
             .args(["eject", &mount_point.to_string_lossy()])
             .status()?;
         if !status.success() {
-            anyhow::bail!(
-                "diskutil eject a échoué sur {}",
-                mount_point.display()
-            );
+            anyhow::bail!("diskutil eject a échoué sur {}", mount_point.display());
         }
         return Ok(());
     }
@@ -221,13 +221,13 @@ pub fn eject_volume(mount_point: &Path) -> anyhow::Result<()> {
 // ---------------------------------------------------------------------------
 
 pub struct DryRunReport {
-    pub files:            Vec<PathBuf>,
-    pub total_files:      usize,
+    pub files: Vec<PathBuf>,
+    pub total_files: usize,
     pub total_size_bytes: u64,
-    pub par2_size_bytes:  u64,
-    pub space_checks:     Vec<SpaceCheck>,
-    pub estimated_secs:   u64,
-    pub clips:            Option<Vec<Clip>>,
+    pub par2_size_bytes: u64,
+    pub space_checks: Vec<SpaceCheck>,
+    pub estimated_secs: u64,
+    pub clips: Option<Vec<Clip>>,
 }
 
 const DRY_RUN_SPEED_BPS: u64 = 300 * 1_000_000; // 300 Mo/s
@@ -273,31 +273,45 @@ pub fn dry_run(job: &CopyJob) -> anyhow::Result<DryRunReport> {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
 pub struct CopyJobTemplate {
-    pub destinations:      Vec<PathBuf>,
-    pub hash_algo_str:     String,
-    pub resume:            bool,
-    pub par2_redundancy:   Option<u8>,
-    pub camera_mode:       bool,
+    pub destinations: Vec<PathBuf>,
+    pub hash_algo_str: String,
+    pub resume: bool,
+    pub par2_redundancy: Option<u8>,
+    pub camera_mode: bool,
     pub preserve_metadata: bool,
-    pub rename_template:   Option<String>,
-    pub auto_eject:        bool,
+    pub rename_template: Option<String>,
+    pub auto_eject: bool,
 }
 
 pub struct WatchConfig {
     pub mount_point: PathBuf,
-    pub copy_job:    CopyJobTemplate,
-    pub delay_secs:  u64,
-    pub auto_eject:  bool,
+    pub copy_job: CopyJobTemplate,
+    pub delay_secs: u64,
+    pub auto_eject: bool,
 }
 
 pub enum WatchEvent {
     Waiting,
-    VolumeDetected { name: String, path: PathBuf, size: u64 },
-    CopyStarting   { volume: String },
-    CopyProgress   (CopyProgress),
-    CopyDone       { volume: String, manifest: ferr_report::Manifest },
-    Ejected        { volume: String },
-    Error          { volume: String, error: String },
+    VolumeDetected {
+        name: String,
+        path: PathBuf,
+        size: u64,
+    },
+    CopyStarting {
+        volume: String,
+    },
+    CopyProgress(CopyProgress),
+    CopyDone {
+        volume: String,
+        manifest: ferr_report::Manifest,
+    },
+    Ejected {
+        volume: String,
+    },
+    Error {
+        volume: String,
+        error: String,
+    },
 }
 
 pub fn run_watch(
@@ -310,7 +324,9 @@ pub fn run_watch(
     let (tx, rx) = mpsc::channel::<notify::Result<Event>>();
 
     let mut watcher = RecommendedWatcher::new(
-        move |res| { let _ = tx.send(res); },
+        move |res| {
+            let _ = tx.send(res);
+        },
         Config::default(),
     )?;
 
@@ -345,23 +361,25 @@ pub fn run_watch(
 
                 // Attendre delay_secs
                 std::thread::sleep(std::time::Duration::from_secs(config.delay_secs));
-                on_event(WatchEvent::CopyStarting { volume: name.clone() });
+                on_event(WatchEvent::CopyStarting {
+                    volume: name.clone(),
+                });
 
                 let hash_algo = match config.copy_job.hash_algo_str.as_str() {
                     "sha256" => HashAlgo::Sha256,
-                    _        => HashAlgo::XxHash64,
+                    _ => HashAlgo::XxHash64,
                 };
 
                 let job = CopyJob {
-                    source:            path.clone(),
-                    destinations:      config.copy_job.destinations.clone(),
+                    source: path.clone(),
+                    destinations: config.copy_job.destinations.clone(),
                     hash_algo,
-                    resume:            config.copy_job.resume,
-                    par2_redundancy:   config.copy_job.par2_redundancy,
+                    resume: config.copy_job.resume,
+                    par2_redundancy: config.copy_job.par2_redundancy,
                     preserve_metadata: config.copy_job.preserve_metadata,
-                    camera_mode:       config.copy_job.camera_mode,
-                    rename_template:   config.copy_job.rename_template.clone(),
-                    auto_eject:        false,
+                    camera_mode: config.copy_job.camera_mode,
+                    rename_template: config.copy_job.rename_template.clone(),
+                    auto_eject: false,
                     ..Default::default()
                 };
 
@@ -376,7 +394,7 @@ pub fn run_watch(
                                 Ok(()) => on_event(WatchEvent::Ejected { volume: name }),
                                 Err(e) => on_event(WatchEvent::Error {
                                     volume: name,
-                                    error:  format!("Éjection : {e}"),
+                                    error: format!("Éjection : {e}"),
                                 }),
                             }
                         }
@@ -384,7 +402,7 @@ pub fn run_watch(
                     Err(e) => {
                         on_event(WatchEvent::Error {
                             volume: name,
-                            error:  e.to_string(),
+                            error: e.to_string(),
                         });
                     }
                 }
@@ -408,7 +426,7 @@ pub fn run_copy(
 
     let hasher: Box<dyn ferr_hash::Hasher> = match job.hash_algo {
         HashAlgo::XxHash64 => Box::new(ferr_hash::XxHasher),
-        HashAlgo::Sha256   => Box::new(ferr_hash::Sha256Hasher),
+        HashAlgo::Sha256 => Box::new(ferr_hash::Sha256Hasher),
     };
 
     let destinations: Vec<Box<dyn ferr_transfer::Destination>> = job
@@ -429,8 +447,8 @@ pub fn run_copy(
     };
 
     // Vérification espace disque
-    let space_checks = check_space(&job.source, &job.destinations, job.par2_redundancy)
-        .unwrap_or_default();
+    let space_checks =
+        check_space(&job.source, &job.destinations, job.par2_redundancy).unwrap_or_default();
     for check in &space_checks {
         if !check.ok {
             anyhow::bail!(
@@ -467,12 +485,12 @@ pub fn run_copy(
         let dest_rel = if let Some(tmpl) = &job.rename_template {
             // On a besoin du clip pour le renommage — scan simplifié
             let pseudo_clip = ferr_camera::Clip {
-                id:            rel.to_string_lossy().into_owned(),
-                format:        ferr_camera::CameraFormat::Unknown,
-                primary_file:  src_file.clone(),
+                id: rel.to_string_lossy().into_owned(),
+                format: ferr_camera::CameraFormat::Unknown,
+                primary_file: src_file.clone(),
                 sidecar_files: Vec::new(),
-                total_size:    file_size,
-                metadata:      ferr_camera::ClipMetadata::default(),
+                total_size: file_size,
+                metadata: ferr_camera::ClipMetadata::default(),
             };
             match ferr_camera::apply_rename_template(&pseudo_clip, tmpl) {
                 Ok(name) => {
@@ -494,23 +512,23 @@ pub fn run_copy(
                     if !records.is_empty() {
                         dedup_skipped += 1;
                         on_progress(CopyProgress {
-                            current_file:     rel.to_path_buf(),
-                            file_bytes_done:  file_size,
+                            current_file: rel.to_path_buf(),
+                            file_bytes_done: file_size,
                             file_bytes_total: file_size,
                             total_files_done: idx,
                             total_files,
-                            speed_bytes_sec:  0,
+                            speed_bytes_sec: 0,
                             errors,
-                            phase:            CopyPhase::Copying,
+                            phase: CopyPhase::Copying,
                             dedup_skipped,
                         });
                         file_entries.push(ferr_report::FileEntry {
-                            path:           dest_rel.to_string_lossy().replace('\\', "/"),
-                            size:           file_size,
-                            hash_algo:      job.hash_algo.to_string(),
-                            hash:           h.hex,
+                            path: dest_rel.to_string_lossy().replace('\\', "/"),
+                            size: file_size,
+                            hash_algo: job.hash_algo.to_string(),
+                            hash: h.hex,
                             modified_at,
-                            status:         ferr_report::FileStatus::Skipped,
+                            status: ferr_report::FileStatus::Skipped,
                             par2_generated: false,
                         });
                         continue;
@@ -520,17 +538,17 @@ pub fn run_copy(
         }
 
         on_progress(CopyProgress {
-            current_file:     rel.to_path_buf(),
-            file_bytes_done:  0,
+            current_file: rel.to_path_buf(),
+            file_bytes_done: 0,
             file_bytes_total: file_size,
             total_files_done: idx,
             total_files,
-            speed_bytes_sec:  speed_bytes_sec(
+            speed_bytes_sec: speed_bytes_sec(
                 total_size_bytes,
                 global_start.elapsed().as_secs_f64(),
             ),
             errors,
-            phase:            CopyPhase::Copying,
+            phase: CopyPhase::Copying,
             dedup_skipped,
         });
 
@@ -542,17 +560,17 @@ pub fn run_copy(
             resume_manifest.as_ref(),
             |bytes_done| {
                 on_progress(CopyProgress {
-                    current_file:     rel.to_path_buf(),
-                    file_bytes_done:  bytes_done,
+                    current_file: rel.to_path_buf(),
+                    file_bytes_done: bytes_done,
                     file_bytes_total: file_size,
                     total_files_done: idx,
                     total_files,
-                    speed_bytes_sec:  speed_bytes_sec(
+                    speed_bytes_sec: speed_bytes_sec(
                         total_size_bytes + bytes_done,
                         global_start.elapsed().as_secs_f64(),
                     ),
                     errors,
-                    phase:            CopyPhase::Copying,
+                    phase: CopyPhase::Copying,
                     dedup_skipped,
                 });
             },
@@ -572,10 +590,10 @@ pub fn run_copy(
                     ferr_report::FileStatus::Corrupted
                 };
                 file_entries.push(ferr_report::FileEntry {
-                    path:           dest_rel.to_string_lossy().replace('\\', "/"),
-                    size:           transfer.src_hash.bytes_read,
-                    hash_algo:      transfer.src_hash.algo.to_string(),
-                    hash:           transfer.src_hash.hex,
+                    path: dest_rel.to_string_lossy().replace('\\', "/"),
+                    size: transfer.src_hash.bytes_read,
+                    hash_algo: transfer.src_hash.algo.to_string(),
+                    hash: transfer.src_hash.hex,
                     modified_at,
                     status,
                     par2_generated: false,
@@ -585,12 +603,12 @@ pub fn run_copy(
                 errors += 1;
                 eprintln!("Erreur sur {} : {e}", rel.display());
                 file_entries.push(ferr_report::FileEntry {
-                    path:           dest_rel.to_string_lossy().replace('\\', "/"),
-                    size:           file_size,
-                    hash_algo:      job.hash_algo.to_string(),
-                    hash:           String::new(),
+                    path: dest_rel.to_string_lossy().replace('\\', "/"),
+                    size: file_size,
+                    hash_algo: job.hash_algo.to_string(),
+                    hash: String::new(),
                     modified_at,
-                    status:         ferr_report::FileStatus::Corrupted,
+                    status: ferr_report::FileStatus::Corrupted,
                     par2_generated: false,
                 });
             }
@@ -600,21 +618,23 @@ pub fn run_copy(
     // --- Phase PAR2 ---
     if let Some(pct) = job.par2_redundancy {
         on_progress(CopyProgress {
-            current_file:     PathBuf::from("(par2)"),
-            file_bytes_done:  0,
+            current_file: PathBuf::from("(par2)"),
+            file_bytes_done: 0,
             file_bytes_total: 0,
             total_files_done: total_files,
             total_files,
-            speed_bytes_sec:  0,
+            speed_bytes_sec: 0,
             errors,
-            phase:            CopyPhase::GeneratingPar2,
+            phase: CopyPhase::GeneratingPar2,
             dedup_skipped,
         });
         for dest_path in &job.destinations {
             let par2_out = dest_path.join("_par2");
             match ferr_par2::generate(dest_path, &par2_out, pct, |_| {}) {
                 Ok(_) => {
-                    for e in &mut file_entries { e.par2_generated = true; }
+                    for e in &mut file_entries {
+                        e.par2_generated = true;
+                    }
                 }
                 Err(e) => eprintln!("PAR2 non disponible : {e}"),
             }
@@ -636,15 +656,15 @@ pub fn run_copy(
         .unwrap_or_else(|_| "unknown".to_string());
 
     let manifest = ferr_report::Manifest {
-        ferr_version:    env!("CARGO_PKG_VERSION").to_string(),
-        generated_at:    chrono::Utc::now().to_rfc3339(),
+        ferr_version: env!("CARGO_PKG_VERSION").to_string(),
+        generated_at: chrono::Utc::now().to_rfc3339(),
         hostname,
-        source_path:     job.source.to_string_lossy().into_owned(),
+        source_path: job.source.to_string_lossy().into_owned(),
         total_files,
         total_size_bytes,
         duration_secs,
         status,
-        files:           file_entries,
+        files: file_entries,
     };
 
     // Sauvegarder le manifest dans chaque destination
@@ -696,14 +716,14 @@ pub fn run_copy(
     }
 
     on_progress(CopyProgress {
-        current_file:     PathBuf::from("(terminé)"),
-        file_bytes_done:  total_size_bytes,
+        current_file: PathBuf::from("(terminé)"),
+        file_bytes_done: total_size_bytes,
         file_bytes_total: total_size_bytes,
         total_files_done: total_files,
         total_files,
-        speed_bytes_sec:  speed_bytes_sec(total_size_bytes, duration_secs),
+        speed_bytes_sec: speed_bytes_sec(total_size_bytes, duration_secs),
         errors,
-        phase:            CopyPhase::Done,
+        phase: CopyPhase::Done,
         dedup_skipped,
     });
 
@@ -759,7 +779,7 @@ fn find_existing_ancestor(path: &Path) -> PathBuf {
     while !p.exists() {
         match p.parent() {
             Some(parent) => p = parent.to_path_buf(),
-            None         => return PathBuf::from("/"),
+            None => return PathBuf::from("/"),
         }
     }
     p
@@ -809,13 +829,15 @@ fn available_space(_path: &Path) -> anyhow::Result<u64> {
 }
 
 fn speed_bytes_sec(bytes: u64, secs: f64) -> u64 {
-    if secs < 0.001 { return 0; }
+    if secs < 0.001 {
+        return 0;
+    }
     (bytes as f64 / secs) as u64
 }
 
 fn format_unix_time(secs: u64) -> String {
-    let dt = chrono::DateTime::from_timestamp(secs as i64, 0)
-        .unwrap_or_else(chrono::DateTime::default);
+    let dt =
+        chrono::DateTime::from_timestamp(secs as i64, 0).unwrap_or_else(chrono::DateTime::default);
     dt.format("%Y-%m-%dT%H:%M:%SZ").to_string()
 }
 
@@ -823,8 +845,13 @@ fn human_size(bytes: u64) -> String {
     const GB: u64 = 1_000_000_000;
     const MB: u64 = 1_000_000;
     const KB: u64 = 1_000;
-    if bytes >= GB      { format!("{:.2} Go", bytes as f64 / GB as f64) }
-    else if bytes >= MB { format!("{:.1} Mo", bytes as f64 / MB as f64) }
-    else if bytes >= KB { format!("{:.0} Ko", bytes as f64 / KB as f64) }
-    else                { format!("{bytes} o") }
+    if bytes >= GB {
+        format!("{:.2} Go", bytes as f64 / GB as f64)
+    } else if bytes >= MB {
+        format!("{:.1} Mo", bytes as f64 / MB as f64)
+    } else if bytes >= KB {
+        format!("{:.0} Ko", bytes as f64 / KB as f64)
+    } else {
+        format!("{bytes} o")
+    }
 }

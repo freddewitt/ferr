@@ -11,32 +11,32 @@ pub type SessionId = i64;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Session {
-    pub id:            SessionId,
-    pub date:          String,
-    pub source:        String,
-    pub destinations:  Vec<String>,
-    pub total_files:   usize,
-    pub total_bytes:   u64,
+    pub id: SessionId,
+    pub date: String,
+    pub source: String,
+    pub destinations: Vec<String>,
+    pub total_files: usize,
+    pub total_bytes: u64,
     pub duration_secs: f64,
-    pub status:        String,
+    pub status: String,
     pub manifest_path: Option<String>,
-    pub hash_algo:     String,
+    pub hash_algo: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileRecord {
-    pub id:         i64,
+    pub id: i64,
     pub session_id: SessionId,
-    pub path:       String,
-    pub size:       u64,
-    pub hash:       String,
-    pub status:     String,
+    pub path: String,
+    pub size: u64,
+    pub hash: String,
+    pub status: String,
 }
 
 #[derive(Debug, Default)]
 pub struct SessionFilter {
-    pub since:  Option<String>,
-    pub limit:  Option<usize>,
+    pub since: Option<String>,
+    pub limit: Option<usize>,
     pub source: Option<String>,
 }
 
@@ -59,8 +59,8 @@ pub fn db_path() -> anyhow::Result<PathBuf> {
     }
     #[cfg(windows)]
     {
-        let appdata =
-            std::env::var("APPDATA").unwrap_or_else(|_| "C:\\Users\\Default\\AppData\\Roaming".to_string());
+        let appdata = std::env::var("APPDATA")
+            .unwrap_or_else(|_| "C:\\Users\\Default\\AppData\\Roaming".to_string());
         Ok(PathBuf::from(appdata).join("ferr").join("history.db"))
     }
     #[cfg(not(any(unix, windows)))]
@@ -183,7 +183,8 @@ pub fn list_sessions(filter: SessionFilter) -> anyhow::Result<Vec<Session>> {
     let mut query = "SELECT id, date, source, destinations, total_files, total_bytes,
                             duration_secs, status, manifest_path, hash_algo
                      FROM sessions
-                     WHERE 1=1".to_string();
+                     WHERE 1=1"
+        .to_string();
 
     if filter.since.is_some() {
         query.push_str(" AND date >= ?1");
@@ -200,10 +201,7 @@ pub fn list_sessions(filter: SessionFilter) -> anyhow::Result<Vec<Session>> {
             params![since, format!("%{src}%"), limit as i64],
             row_to_session,
         )?,
-        (Some(since), None) => stmt.query_map(
-            params![since, "", limit as i64],
-            row_to_session,
-        )?,
+        (Some(since), None) => stmt.query_map(params![since, "", limit as i64], row_to_session)?,
         (None, Some(src)) => stmt.query_map(
             params!["", format!("%{src}%"), limit as i64],
             row_to_session,
@@ -239,12 +237,12 @@ pub fn find_file_by_hash(hash: &str) -> anyhow::Result<Vec<FileRecord>> {
     )?;
     let rows = stmt.query_map(params![hash], |row| {
         Ok(FileRecord {
-            id:         row.get(0)?,
+            id: row.get(0)?,
             session_id: row.get(1)?,
-            path:       row.get(2)?,
-            size:       row.get::<_, i64>(3)? as u64,
-            hash:       row.get(4)?,
-            status:     row.get(5)?,
+            path: row.get(2)?,
+            size: row.get::<_, i64>(3)? as u64,
+            hash: row.get(4)?,
+            status: row.get(5)?,
         })
     })?;
     let records: Result<Vec<_>, _> = rows.collect();
@@ -260,19 +258,19 @@ pub fn find_sessions_by_source(source: &str) -> anyhow::Result<Vec<Session>> {
 
 fn row_to_session(row: &rusqlite::Row<'_>) -> rusqlite::Result<Session> {
     let dests_json: String = row.get(3)?;
-    let destinations: Vec<String> = serde_json::from_str(&dests_json)
-        .unwrap_or_else(|_| vec![dests_json.clone()]);
+    let destinations: Vec<String> =
+        serde_json::from_str(&dests_json).unwrap_or_else(|_| vec![dests_json.clone()]);
     Ok(Session {
-        id:            row.get(0)?,
-        date:          row.get(1)?,
-        source:        row.get(2)?,
+        id: row.get(0)?,
+        date: row.get(1)?,
+        source: row.get(2)?,
         destinations,
-        total_files:   row.get::<_, i64>(4)? as usize,
-        total_bytes:   row.get::<_, i64>(5)? as u64,
+        total_files: row.get::<_, i64>(4)? as usize,
+        total_bytes: row.get::<_, i64>(5)? as u64,
         duration_secs: row.get(6)?,
-        status:        row.get(7)?,
+        status: row.get(7)?,
         manifest_path: row.get(8)?,
-        hash_algo:     row.get(9)?,
+        hash_algo: row.get(9)?,
     })
 }
 
@@ -286,21 +284,21 @@ mod tests {
 
     fn test_manifest() -> ferr_report::Manifest {
         ferr_report::Manifest {
-            ferr_version:    "0.1.0".into(),
-            generated_at:    "2025-01-01T00:00:00Z".into(),
-            hostname:        "host".into(),
-            source_path:     "/footage/A001".into(),
-            total_files:     1,
+            ferr_version: "0.1.0".into(),
+            generated_at: "2025-01-01T00:00:00Z".into(),
+            hostname: "host".into(),
+            source_path: "/footage/A001".into(),
+            total_files: 1,
             total_size_bytes: 1024,
-            duration_secs:   0.5,
-            status:          ferr_report::JobStatus::Ok,
+            duration_secs: 0.5,
+            status: ferr_report::JobStatus::Ok,
             files: vec![ferr_report::FileEntry {
-                path:           "A001_C001.braw".into(),
-                size:           1024,
-                hash_algo:      "xxhash64".into(),
-                hash:           "abcdef1234567890".into(),
-                modified_at:    "2025-01-01T00:00:00Z".into(),
-                status:         ferr_report::FileStatus::Ok,
+                path: "A001_C001.braw".into(),
+                size: 1024,
+                hash_algo: "xxhash64".into(),
+                hash: "abcdef1234567890".into(),
+                modified_at: "2025-01-01T00:00:00Z".into(),
+                status: ferr_report::FileStatus::Ok,
                 par2_generated: false,
             }],
         }
@@ -308,8 +306,7 @@ mod tests {
 
     fn set_test_db() {
         // Forcer un DB temporaire pour les tests
-        let tmp = std::env::temp_dir()
-            .join(format!("ferr_session_test_{}.db", std::process::id()));
+        let tmp = std::env::temp_dir().join(format!("ferr_session_test_{}.db", std::process::id()));
         std::env::set_var("FERR_DATA_DIR", tmp.parent().unwrap());
     }
 

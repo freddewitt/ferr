@@ -32,19 +32,19 @@ fn make_source(dir: &Path, n: usize, size: usize) {
 /// Construit un CopyJob minimal (PDF/notify/session désactivés pour les tests).
 fn job(src: PathBuf, dst: PathBuf) -> CopyJob {
     CopyJob {
-        source:            src,
-        destinations:      vec![dst],
-        hash_algo:         HashAlgo::XxHash64,
-        resume:            false,
-        par2_redundancy:   None,
+        source: src,
+        destinations: vec![dst],
+        hash_algo: HashAlgo::XxHash64,
+        resume: false,
+        par2_redundancy: None,
         preserve_metadata: false,
-        camera_mode:       false,
-        rename_template:   None,
-        auto_eject:        false,
-        dedup:             false,
-        generate_pdf:      false,
-        send_notify:       false,
-        record_session:    false,
+        camera_mode: false,
+        rename_template: None,
+        auto_eject: false,
+        dedup: false,
+        generate_pdf: false,
+        send_notify: false,
+        record_session: false,
     }
 }
 
@@ -70,7 +70,12 @@ fn copy_basic_creates_files_and_manifest() {
     for entry in &manifest.files {
         let path = dst.join(&entry.path);
         assert!(path.exists(), "Fichier manquant à la dest : {}", entry.path);
-        assert_eq!(entry.status, FileStatus::Ok, "Statut inattendu pour {}", entry.path);
+        assert_eq!(
+            entry.status,
+            FileStatus::Ok,
+            "Statut inattendu pour {}",
+            entry.path
+        );
         assert!(!entry.hash.is_empty(), "Hash vide pour {}", entry.path);
         assert_eq!(entry.hash_algo, "xxhash64");
     }
@@ -92,7 +97,7 @@ fn copy_basic_creates_files_and_manifest() {
 
 #[test]
 fn copy_mirror_two_destinations() {
-    let src  = tmp("mirror_src");
+    let src = tmp("mirror_src");
     let dst1 = tmp("mirror_dst1");
     let dst2 = tmp("mirror_dst2");
     make_source(&src, 3, 2048);
@@ -105,8 +110,16 @@ fn copy_mirror_two_destinations() {
 
     // Les fichiers existent sur les deux destinations
     for entry in &manifest.files {
-        assert!(dst1.join(&entry.path).exists(), "dst1 manque {}", entry.path);
-        assert!(dst2.join(&entry.path).exists(), "dst2 manque {}", entry.path);
+        assert!(
+            dst1.join(&entry.path).exists(),
+            "dst1 manque {}",
+            entry.path
+        );
+        assert!(
+            dst2.join(&entry.path).exists(),
+            "dst2 manque {}",
+            entry.path
+        );
     }
 
     std::fs::remove_dir_all(&src).ok();
@@ -193,7 +206,10 @@ fn verify_detects_corrupted_file() {
     let hasher: Box<dyn ferr_hash::Hasher> = Box::new(ferr_hash::XxHasher);
     let report = ferr_verify::verify_manifest(&manifest, &dst, hasher.as_ref()).unwrap();
 
-    assert!(!report.corrupted.is_empty(), "La corruption n'a pas été détectée");
+    assert!(
+        !report.corrupted.is_empty(),
+        "La corruption n'a pas été détectée"
+    );
     assert_ne!(report.exit_code(), 0);
 
     std::fs::remove_dir_all(&src).ok();
@@ -219,7 +235,10 @@ fn verify_detects_missing_file() {
     let hasher: Box<dyn ferr_hash::Hasher> = Box::new(ferr_hash::XxHasher);
     let report = ferr_verify::verify_manifest(&manifest, &dst, hasher.as_ref()).unwrap();
 
-    assert!(!report.missing.is_empty(), "Le fichier manquant n'a pas été détecté");
+    assert!(
+        !report.missing.is_empty(),
+        "Le fichier manquant n'a pas été détecté"
+    );
     assert_eq!(report.exit_code(), 1); // code 1 = manquants uniquement
 
     std::fs::remove_dir_all(&src).ok();
@@ -268,11 +287,18 @@ fn scan_bitrot_detects_corruption() {
     let report = ferr_verify::scan_bitrot(&dst, &manifest, hasher.as_ref(), None, |p| {
         scan_calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         assert!(p.scanned <= p.total);
-    }).unwrap();
+    })
+    .unwrap();
 
-    assert_eq!(report.corrupted.len(), 1, "Devrait détecter exactement 1 fichier corrompu");
-    assert!(scan_calls.load(std::sync::atomic::Ordering::Relaxed) > 0,
-            "La callback de progrès n'a jamais été appelée");
+    assert_eq!(
+        report.corrupted.len(),
+        1,
+        "Devrait détecter exactement 1 fichier corrompu"
+    );
+    assert!(
+        scan_calls.load(std::sync::atomic::Ordering::Relaxed) > 0,
+        "La callback de progrès n'a jamais été appelée"
+    );
 
     std::fs::remove_dir_all(&src).ok();
     std::fs::remove_dir_all(&dst).ok();
@@ -327,8 +353,8 @@ fn export_ale_produces_valid_file() {
     // Structure ALE minimale
     assert!(content.contains("Heading"), "ALE: section Heading absente");
     assert!(content.contains("Column"), "ALE: section Column absente");
-    assert!(content.contains("Data"),   "ALE: section Data absente");
-    assert!(content.contains("Name"),   "ALE: colonne Name absente");
+    assert!(content.contains("Data"), "ALE: section Data absente");
+    assert!(content.contains("Name"), "ALE: colonne Name absente");
     // Chaque fichier doit apparaître (l'ALE utilise le file_stem, sans extension)
     for entry in &manifest.files {
         let stem = std::path::Path::new(&entry.path)
@@ -338,7 +364,8 @@ fn export_ale_produces_valid_file() {
         assert!(
             content.contains(&stem),
             "ALE: stem '{}' absent (depuis '{}')",
-            stem, entry.path
+            stem,
+            entry.path
         );
     }
 
@@ -369,7 +396,10 @@ fn export_csv_produces_valid_file() {
     assert!(content.starts_with("path,"), "CSV: en-tête incorrect");
     // Autant de lignes de données que de fichiers
     let data_lines = content.lines().count() - 1; // -1 pour l'en-tête
-    assert_eq!(data_lines, manifest.total_files, "CSV: nombre de lignes incorrect");
+    assert_eq!(
+        data_lines, manifest.total_files,
+        "CSV: nombre de lignes incorrect"
+    );
 
     std::fs::remove_dir_all(&src).ok();
     std::fs::remove_dir_all(&dst).ok();
@@ -429,8 +459,15 @@ fn resume_skips_already_copied_files() {
     // Le nouveau fichier doit avoir été copié
     assert!(dst.join("extra_new.dat").exists());
     // Les fichiers skipped ont le statut Skipped
-    let skipped = m2.files.iter().filter(|f| f.status == FileStatus::Skipped).count();
-    assert!(skipped > 0, "Des fichiers auraient dû être sautés en mode resume");
+    let skipped = m2
+        .files
+        .iter()
+        .filter(|f| f.status == FileStatus::Skipped)
+        .count();
+    assert!(
+        skipped > 0,
+        "Des fichiers auraient dû être sautés en mode resume"
+    );
 
     std::fs::remove_dir_all(&src).ok();
     std::fs::remove_dir_all(&dst).ok();
@@ -451,9 +488,13 @@ fn copy_progress_callback_invoked() {
         calls.fetch_add(1, Ordering::Relaxed);
         assert!(p.total_files_done <= p.total_files);
         assert!(p.file_bytes_done <= p.file_bytes_total || p.file_bytes_total == 0);
-    }).unwrap();
+    })
+    .unwrap();
 
-    assert!(calls.load(Ordering::Relaxed) > 0, "La callback n'a jamais été appelée");
+    assert!(
+        calls.load(Ordering::Relaxed) > 0,
+        "La callback n'a jamais été appelée"
+    );
 
     std::fs::remove_dir_all(&src).ok();
     std::fs::remove_dir_all(&dst).ok();
@@ -480,7 +521,8 @@ fn copy_with_par2_generates_files() {
     // Les fichiers PAR2 doivent exister dans _par2/
     let par2_dir = dst.join("_par2");
     assert!(par2_dir.exists(), "_par2/ absent");
-    let par2_count = std::fs::read_dir(&par2_dir).unwrap()
+    let par2_count = std::fs::read_dir(&par2_dir)
+        .unwrap()
         .filter_map(|e| e.ok())
         .filter(|e| e.path().extension().map(|x| x == "par2").unwrap_or(false))
         .count();
@@ -488,7 +530,11 @@ fn copy_with_par2_generates_files() {
 
     // Tous les fichiers marqués par2_generated
     for entry in &manifest.files {
-        assert!(entry.par2_generated, "{} n'est pas marqué par2_generated", entry.path);
+        assert!(
+            entry.par2_generated,
+            "{} n'est pas marqué par2_generated",
+            entry.path
+        );
     }
 
     std::fs::remove_dir_all(&src).ok();

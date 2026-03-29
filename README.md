@@ -1,6 +1,6 @@
 # ferr
 
-[![CI](https://github.com/your-org/ferr/actions/workflows/ci.yml/badge.svg)](https://github.com/your-org/ferr/actions/workflows/ci.yml)
+[![CI](https://github.com/freddewitt/ferr/actions/workflows/ci.yml/badge.svg)](https://github.com/freddewitt/ferr/actions/workflows/ci.yml)
 
 Outil CLI de copie sécurisée de fichiers vidéo conçu pour les **DIT** (Digital Imaging Technician) et les professionnels de l'audiovisuel.
 

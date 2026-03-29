@@ -184,7 +184,10 @@ pub fn export_ale(manifest: &Manifest, path: &Path) -> anyhow::Result<()> {
     writeln!(f, "FPS\t25")?;
     writeln!(f)?;
     writeln!(f, "Column")?;
-    writeln!(f, "Name\tTape\tStart\tEnd\tFPS\tReel\tCamera\tResolution\tferr_hash\tferr_status")?;
+    writeln!(
+        f,
+        "Name\tTape\tStart\tEnd\tFPS\tReel\tCamera\tResolution\tferr_hash\tferr_status"
+    )?;
     writeln!(f)?;
     writeln!(f, "Data")?;
 
@@ -193,14 +196,14 @@ pub fn export_ale(manifest: &Manifest, path: &Path) -> anyhow::Result<()> {
             .file_stem()
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_else(|| entry.path.clone());
-        let tape  = manifest.source_path.clone();
+        let tape = manifest.source_path.clone();
         let start = "00:00:00:00";
-        let end   = "00:00:00:00";
-        let fps   = "25";
-        let reel  = "";
-        let cam   = "";
-        let res   = "";
-        let hash  = &entry.hash;
+        let end = "00:00:00:00";
+        let fps = "25";
+        let reel = "";
+        let cam = "";
+        let res = "";
+        let hash = &entry.hash;
         let status = format!("{:?}", entry.status);
 
         writeln!(
@@ -221,7 +224,10 @@ pub fn export_csv(manifest: &Manifest, path: &Path) -> anyhow::Result<()> {
     use std::io::Write;
     let mut f = std::fs::File::create(path)?;
 
-    writeln!(f, "path,size_bytes,hash_algo,hash,modified_at,status,par2_generated")?;
+    writeln!(
+        f,
+        "path,size_bytes,hash_algo,hash,modified_at,status,par2_generated"
+    )?;
     for entry in &manifest.files {
         writeln!(
             f,

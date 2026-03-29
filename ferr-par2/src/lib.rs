@@ -113,7 +113,9 @@ fn collect_files(dir: &Path) -> Vec<PathBuf> {
 }
 
 fn collect_files_rec(dir: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
     for entry in entries.filter_map(|e| e.ok()) {
         let path = entry.path();
         if path.is_symlink() {
@@ -121,13 +123,24 @@ fn collect_files_rec(dir: &Path, out: &mut Vec<PathBuf>) {
         }
         if path.is_dir() {
             // Ne pas descendre dans un dossier _par2 déjà créé
-            let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-            if name == "_par2" { continue; }
+            let name = path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            if name == "_par2" {
+                continue;
+            }
             collect_files_rec(&path, out);
         } else if path.is_file() {
-            let ext = path.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
+            let ext = path
+                .extension()
+                .map(|e| e.to_string_lossy().to_lowercase())
+                .unwrap_or_default();
             // Exclure les fichiers meta ferr
-            let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            let name = path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
             if ext == "par2" || name == "ferr-manifest.json" || ext == "pdf" {
                 continue;
             }
@@ -199,10 +212,7 @@ pub fn generate(
 
         let files = collect_files(source_dir);
         if files.is_empty() {
-            anyhow::bail!(
-                "Aucun fichier source trouvé dans {}",
-                source_dir.display()
-            );
+            anyhow::bail!("Aucun fichier source trouvé dans {}", source_dir.display());
         }
 
         std::fs::create_dir_all(output_dir)?;
@@ -218,18 +228,18 @@ pub fn generate(
         // Construire la commande
         // par2 create -r{pct} -n1 -B{src} {index} [files…]
         let mut cmd = match style {
-            Par2Style::Modern  => {
+            Par2Style::Modern => {
                 let mut c = std::process::Command::new("par2");
                 c.arg("create");
                 c
             }
-            Par2Style::Legacy  => std::process::Command::new("par2create"),
+            Par2Style::Legacy => std::process::Command::new("par2create"),
         };
 
         cmd.arg(format!("-r{redundancy_pct}"))
-           .arg("-n1")                          // un seul volume de récupération
-           .arg(format!("-B{}", source_dir.display()))
-           .arg(&index_file);
+            .arg("-n1") // un seul volume de récupération
+            .arg(format!("-B{}", source_dir.display()))
+            .arg(&index_file);
 
         for f in &files {
             cmd.arg(f);
@@ -238,16 +248,19 @@ pub fn generate(
         // Utiliser output() pour éviter le deadlock lié aux pipes :
         // par2 écrit la progression via \r (carriage return), pas \n,
         // ce qui remplit le buffer de la pipe avant que les lignes soient lues.
-        let output = cmd.output()
+        let output = cmd
+            .output()
             .map_err(|e| anyhow::anyhow!("Impossible de lancer par2 : {e}"))?;
 
         // Rejouer les tokens "Opening:" pour un progrès approximatif.
         let tokens = split_par2_output(&output.stdout);
         let total = files.len().max(1) as f32;
-        let open_count = tokens.iter()
+        let open_count = tokens
+            .iter()
             .filter(|l| l.trim().starts_with("Opening:"))
             .count() as f32;
-        for (i, _) in tokens.iter()
+        for (i, _) in tokens
+            .iter()
             .filter(|l| l.trim().starts_with("Opening:"))
             .enumerate()
         {
@@ -279,8 +292,7 @@ pub fn generate(
             .iter()
             .map(|f| std::fs::metadata(f).map(|m| m.len()).unwrap_or(0))
             .sum();
-        let total_redundancy_bytes =
-            (source_size as f64 * redundancy_pct as f64 / 100.0) as u64;
+        let total_redundancy_bytes = (source_size as f64 * redundancy_pct as f64 / 100.0) as u64;
 
         Ok(Par2Result {
             par2_files,
@@ -293,10 +305,7 @@ pub fn generate(
 ///
 /// `par2_index` : chemin vers le fichier `.par2` index (ex. `_par2/ferr.par2`).
 /// `target_dir` : répertoire contenant les fichiers originaux.
-pub fn verify(
-    par2_index: &Path,
-    target_dir: &Path,
-) -> anyhow::Result<Par2VerifyStatus> {
+pub fn verify(par2_index: &Path, target_dir: &Path) -> anyhow::Result<Par2VerifyStatus> {
     // ── Stub ──────────────────────────────────────────────────────────────
     #[cfg(par2_stub)]
     {
@@ -318,11 +327,12 @@ pub fn verify(
         };
 
         cmd.arg(format!("-B{}", target_dir.display()))
-           .arg(par2_index)
-           .stdout(Stdio::piped())
-           .stderr(Stdio::piped());
+            .arg(par2_index)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
 
-        let output = cmd.output()
+        let output = cmd
+            .output()
             .map_err(|e| anyhow::anyhow!("Impossible de lancer par2verify : {e}"))?;
 
         let stdout = String::from_utf8_lossy(&output.stdout);
@@ -385,9 +395,10 @@ pub fn repair(
         };
 
         cmd.arg(format!("-B{}", target_dir.display()))
-           .arg(par2_index);
+            .arg(par2_index);
 
-        let output = cmd.output()
+        let output = cmd
+            .output()
             .map_err(|e| anyhow::anyhow!("Impossible de lancer par2repair : {e}"))?;
 
         // Rejouer les pourcentages depuis la sortie collectée.
@@ -439,8 +450,8 @@ mod tests {
     #[test]
     fn parse_pct_various_formats() {
         assert_eq!(parse_pct("Repairing: 45.2%"), Some(45));
-        assert_eq!(parse_pct("Repairing: 100%"),  Some(100));
-        assert_eq!(parse_pct("Progress: 0%"),     Some(0));
+        assert_eq!(parse_pct("Repairing: 100%"), Some(100));
+        assert_eq!(parse_pct("Progress: 0%"), Some(0));
         assert_eq!(parse_pct("no percentage here"), None);
     }
 
@@ -506,7 +517,7 @@ mod tests {
     #[ignore = "nécessite par2cmdline installé sur le système"]
     fn generate_verify_repair_roundtrip() {
         let base = std::env::temp_dir().join("ferr_par2_integration");
-        let src  = base.join("src");
+        let src = base.join("src");
         let par2 = base.join("_par2");
         // Nettoyer les restes d'un run précédent avant de démarrer
         std::fs::remove_dir_all(&base).ok();
@@ -516,7 +527,9 @@ mod tests {
         // que la réparation de quelques octets soit bien dans les 10% de redondance)
         let file_size = 512 * 1024usize;
         for i in 0..4u8 {
-            let content: Vec<u8> = (0..file_size).map(|j| ((j + i as usize) % 256) as u8).collect();
+            let content: Vec<u8> = (0..file_size)
+                .map(|j| ((j + i as usize) % 256) as u8)
+                .collect();
             std::fs::write(src.join(format!("file{i:02}.dat")), &content).unwrap();
         }
 
@@ -540,22 +553,39 @@ mod tests {
         let corrupt_path = src.join("file00.dat");
         let mut data = std::fs::read(&corrupt_path).unwrap();
         // Flip les 64 premiers octets
-        for b in data[..64].iter_mut() { *b ^= 0xFF; }
+        for b in data[..64].iter_mut() {
+            *b ^= 0xFF;
+        }
         std::fs::write(&corrupt_path, &data).unwrap();
 
         // Vérifier (doit détecter la corruption)
         let status = verify(&index, &src).unwrap();
-        assert_ne!(status, Par2VerifyStatus::Ok, "La corruption n'a pas été détectée");
+        assert_ne!(
+            status,
+            Par2VerifyStatus::Ok,
+            "La corruption n'a pas été détectée"
+        );
 
         // Réparer
         let mut repair_progress = 0u8;
-        let repair_status = repair(&index, &src, |p| { repair_progress = p; }).unwrap();
-        assert_eq!(repair_status, Par2RepairStatus::Repaired, "Réparation échouée");
+        let repair_status = repair(&index, &src, |p| {
+            repair_progress = p;
+        })
+        .unwrap();
+        assert_eq!(
+            repair_status,
+            Par2RepairStatus::Repaired,
+            "Réparation échouée"
+        );
         assert_eq!(repair_progress, 100);
 
         // Revérifier (OK après réparation)
         let status = verify(&index, &src).unwrap();
-        assert_eq!(status, Par2VerifyStatus::Ok, "Toujours corrompu après réparation");
+        assert_eq!(
+            status,
+            Par2VerifyStatus::Ok,
+            "Toujours corrompu après réparation"
+        );
 
         std::fs::remove_dir_all(&base).ok();
     }

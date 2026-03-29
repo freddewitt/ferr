@@ -58,9 +58,9 @@ pub struct DestResult {
 }
 
 pub struct TransferResult {
-    pub src_hash:          ferr_hash::HashResult,
-    pub dest_results:      Vec<DestResult>,
-    pub skipped:           bool,
+    pub src_hash: ferr_hash::HashResult,
+    pub dest_results: Vec<DestResult>,
+    pub skipped: bool,
     pub metadata_preserved: bool,
 }
 
@@ -125,11 +125,7 @@ pub fn copy_file(
     // --- Vérification reprise -------------------------------------------------
     if let Some(manifest) = resume_manifest {
         let rel_str = rel_path.to_string_lossy();
-        if let Some(entry) = manifest
-            .files
-            .iter()
-            .find(|e| e.path == rel_str.as_ref())
-        {
+        if let Some(entry) = manifest.files.iter().find(|e| e.path == rel_str.as_ref()) {
             if entry.status == ferr_report::FileStatus::Ok {
                 on_progress(entry.size);
                 return Ok(TransferResult {
@@ -193,7 +189,10 @@ pub fn copy_file(
         for dest in destinations {
             let dest_path = dest.root().join(rel_path);
             if let Err(e) = copy_metadata(src, &src_meta, &dest_path) {
-                eprintln!("Avertissement : métadonnées non préservées sur {} : {e}", dest_path.display());
+                eprintln!(
+                    "Avertissement : métadonnées non préservées sur {} : {e}",
+                    dest_path.display()
+                );
                 all_ok = false;
             }
         }
@@ -283,11 +282,7 @@ fn attempt_write_verify(
 // ---------------------------------------------------------------------------
 
 /// Copie les timestamps (mtime, atime) et les xattrs (macOS) de `src` vers `dest`.
-fn copy_metadata(
-    src: &Path,
-    src_meta: &std::fs::Metadata,
-    dest: &Path,
-) -> anyhow::Result<()> {
+fn copy_metadata(src: &Path, src_meta: &std::fs::Metadata, dest: &Path) -> anyhow::Result<()> {
     use filetime::FileTime;
 
     let mtime = FileTime::from_last_modification_time(src_meta);
@@ -333,8 +328,9 @@ mod tests {
         std::fs::create_dir_all(&dest_root).unwrap();
         std::fs::write(&src, b"hello ferr copy test").unwrap();
 
-        let destinations: Vec<Box<dyn Destination>> =
-            vec![Box::new(LocalDest { root: dest_root.clone() })];
+        let destinations: Vec<Box<dyn Destination>> = vec![Box::new(LocalDest {
+            root: dest_root.clone(),
+        })];
         let hasher = XxHasher;
 
         let result = copy_file(
@@ -375,8 +371,9 @@ mod tests {
         let src_file = src_dir.join("day1").join("clip.mov");
         std::fs::write(&src_file, b"video data").unwrap();
 
-        let destinations: Vec<Box<dyn Destination>> =
-            vec![Box::new(LocalDest { root: dest_root.clone() })];
+        let destinations: Vec<Box<dyn Destination>> = vec![Box::new(LocalDest {
+            root: dest_root.clone(),
+        })];
         let hasher = XxHasher;
 
         let result = copy_file(
@@ -429,8 +426,9 @@ mod tests {
             }],
         };
 
-        let destinations: Vec<Box<dyn Destination>> =
-            vec![Box::new(LocalDest { root: dest_root.clone() })];
+        let destinations: Vec<Box<dyn Destination>> = vec![Box::new(LocalDest {
+            root: dest_root.clone(),
+        })];
 
         let result = copy_file(
             &src,
@@ -460,8 +458,12 @@ mod tests {
         std::fs::write(&src, b"multi destination data").unwrap();
 
         let destinations: Vec<Box<dyn Destination>> = vec![
-            Box::new(LocalDest { root: dest1.clone() }),
-            Box::new(LocalDest { root: dest2.clone() }),
+            Box::new(LocalDest {
+                root: dest1.clone(),
+            }),
+            Box::new(LocalDest {
+                root: dest2.clone(),
+            }),
         ];
         let hasher = XxHasher;
 

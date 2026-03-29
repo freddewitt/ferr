@@ -21,46 +21,46 @@ pub enum CameraFormat {
 impl std::fmt::Display for CameraFormat {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            CameraFormat::Braw     => write!(f, "BRAW (Blackmagic)"),
-            CameraFormat::R3D      => write!(f, "R3D (RED)"),
-            CameraFormat::ArriMxf  => write!(f, "MXF (ARRI)"),
+            CameraFormat::Braw => write!(f, "BRAW (Blackmagic)"),
+            CameraFormat::R3D => write!(f, "R3D (RED)"),
+            CameraFormat::ArriMxf => write!(f, "MXF (ARRI)"),
             CameraFormat::SonyXocn => write!(f, "XOCN (Sony)"),
-            CameraFormat::CanonXf  => write!(f, "XF-AVC (Canon)"),
-            CameraFormat::ProRes   => write!(f, "ProRes (MOV)"),
-            CameraFormat::Unknown  => write!(f, "Inconnu"),
+            CameraFormat::CanonXf => write!(f, "XF-AVC (Canon)"),
+            CameraFormat::ProRes => write!(f, "ProRes (MOV)"),
+            CameraFormat::Unknown => write!(f, "Inconnu"),
         }
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ClipMetadata {
-    pub timecode_in:   Option<String>,
-    pub timecode_out:  Option<String>,
-    pub framerate:     Option<String>,
-    pub resolution:    Option<String>,
-    pub camera_id:     Option<String>,
-    pub reel:          Option<String>,
-    pub iso:           Option<u32>,
+    pub timecode_in: Option<String>,
+    pub timecode_out: Option<String>,
+    pub framerate: Option<String>,
+    pub resolution: Option<String>,
+    pub camera_id: Option<String>,
+    pub reel: Option<String>,
+    pub iso: Option<u32>,
     pub white_balance: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Clip {
-    pub id:            String,
-    pub format:        CameraFormat,
-    pub primary_file:  PathBuf,
+    pub id: String,
+    pub format: CameraFormat,
+    pub primary_file: PathBuf,
     pub sidecar_files: Vec<PathBuf>,
-    pub total_size:    u64,
-    pub metadata:      ClipMetadata,
+    pub total_size: u64,
+    pub metadata: ClipMetadata,
 }
 
 #[derive(Debug)]
 pub struct ClipIntegrity {
-    pub clip_id:       String,
-    pub internal_ok:   bool,
-    pub all_parts_ok:  bool,
+    pub clip_id: String,
+    pub internal_ok: bool,
+    pub all_parts_ok: bool,
     pub missing_parts: Vec<PathBuf>,
-    pub error:         Option<String>,
+    pub error: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -89,10 +89,10 @@ pub fn detect_camera_format(path: &Path) -> Option<CameraFormat> {
     let ext = path.extension()?.to_string_lossy().to_lowercase();
     match ext.as_str() {
         "braw" => Some(CameraFormat::Braw),
-        "r3d"  => Some(CameraFormat::R3D),
-        "mxf"  => Some(CameraFormat::ArriMxf), // heuristique
-        "mov"  => Some(CameraFormat::ProRes),
-        _      => Some(CameraFormat::Unknown),
+        "r3d" => Some(CameraFormat::R3D),
+        "mxf" => Some(CameraFormat::ArriMxf), // heuristique
+        "mov" => Some(CameraFormat::ProRes),
+        _ => Some(CameraFormat::Unknown),
     }
 }
 
@@ -128,10 +128,10 @@ fn detect_by_dominant_extension(dir: &Path) -> Option<CameraFormat> {
     let dominant = counts.into_iter().max_by_key(|(_, v)| *v)?;
     match dominant.0.as_str() {
         "braw" => Some(CameraFormat::Braw),
-        "r3d"  => Some(CameraFormat::R3D),
-        "mxf"  => Some(CameraFormat::ArriMxf),
-        "mov"  => Some(CameraFormat::ProRes),
-        _      => Some(CameraFormat::Unknown),
+        "r3d" => Some(CameraFormat::R3D),
+        "mxf" => Some(CameraFormat::ArriMxf),
+        "mov" => Some(CameraFormat::ProRes),
+        _ => Some(CameraFormat::Unknown),
     }
 }
 
@@ -141,22 +141,19 @@ fn detect_by_dominant_extension(dir: &Path) -> Option<CameraFormat> {
 
 /// Scanne les clips dans un dossier source.
 /// Si `format` est None, auto-détecte.
-pub fn scan_clips(
-    source: &Path,
-    format: Option<CameraFormat>,
-) -> anyhow::Result<Vec<Clip>> {
+pub fn scan_clips(source: &Path, format: Option<CameraFormat>) -> anyhow::Result<Vec<Clip>> {
     let fmt = format
         .or_else(|| detect_camera_format(source))
         .unwrap_or(CameraFormat::Unknown);
 
     match fmt {
-        CameraFormat::Braw     => scan_braw(source),
-        CameraFormat::R3D      => scan_r3d(source),
-        CameraFormat::ArriMxf  => scan_mxf(source, CameraFormat::ArriMxf),
+        CameraFormat::Braw => scan_braw(source),
+        CameraFormat::R3D => scan_r3d(source),
+        CameraFormat::ArriMxf => scan_mxf(source, CameraFormat::ArriMxf),
         CameraFormat::SonyXocn => scan_xocn(source),
-        CameraFormat::CanonXf  => scan_mxf(source, CameraFormat::CanonXf),
-        CameraFormat::ProRes   => scan_prores(source),
-        CameraFormat::Unknown  => scan_generic(source),
+        CameraFormat::CanonXf => scan_mxf(source, CameraFormat::CanonXf),
+        CameraFormat::ProRes => scan_prores(source),
+        CameraFormat::Unknown => scan_generic(source),
     }
 }
 
@@ -252,7 +249,11 @@ fn scan_mxf(source: &Path, format: CameraFormat) -> anyhow::Result<Vec<Clip>> {
 fn scan_xocn(source: &Path) -> anyhow::Result<Vec<Clip>> {
     // XDROOT structure
     let xdroot = source.join("XDROOT");
-    let base = if xdroot.exists() { xdroot } else { source.to_path_buf() };
+    let base = if xdroot.exists() {
+        xdroot
+    } else {
+        source.to_path_buf()
+    };
     scan_mxf(&base, CameraFormat::SonyXocn)
 }
 
@@ -360,11 +361,17 @@ pub fn apply_rename_template(clip: &Clip, template: &str) -> anyhow::Result<Stri
     let date_str = extract_date_from_id(&clip.id);
 
     let result = template
-        .replace("{date}",     &date_str)
-        .replace("{camera}",   clip.metadata.camera_id.as_deref().unwrap_or(&clip.id[..clip.id.len().min(4)]))
-        .replace("{reel}",     clip.metadata.reel.as_deref().unwrap_or("XXXX"))
-        .replace("{clip}",     &clip.id)
-        .replace("{ext}",      &ext)
+        .replace("{date}", &date_str)
+        .replace(
+            "{camera}",
+            clip.metadata
+                .camera_id
+                .as_deref()
+                .unwrap_or(&clip.id[..clip.id.len().min(4)]),
+        )
+        .replace("{reel}", clip.metadata.reel.as_deref().unwrap_or("XXXX"))
+        .replace("{clip}", &clip.id)
+        .replace("{ext}", &ext)
         .replace("{original}", &original);
 
     Ok(result)
@@ -412,7 +419,11 @@ fn parse_convention_name(name: &str) -> ClipMetadata {
     if let Some(cam) = parts.first() {
         // Camera ID : lettre + 3 chiffres (ex: A001)
         if cam.len() == 4
-            && cam.chars().next().map(|c| c.is_ascii_alphabetic()).unwrap_or(false)
+            && cam
+                .chars()
+                .next()
+                .map(|c| c.is_ascii_alphabetic())
+                .unwrap_or(false)
             && cam[1..].chars().all(|c| c.is_ascii_digit())
         {
             meta.camera_id = Some(cam.to_string());
@@ -512,9 +523,13 @@ mod tests {
         let clips = scan_clips(&base, Some(CameraFormat::Braw)).unwrap();
         assert_eq!(clips.len(), 2);
 
-        let c001 = clips
-            .iter()
-            .find(|c| c.primary_file.file_name().unwrap().to_string_lossy().contains("C001"));
+        let c001 = clips.iter().find(|c| {
+            c.primary_file
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .contains("C001")
+        });
         assert!(c001.is_some());
         // Sidecar doit être trouvé
         assert_eq!(c001.unwrap().sidecar_files.len(), 1);
@@ -537,12 +552,12 @@ mod tests {
         let f = base.join("clip.braw");
         std::fs::write(&f, b"data").unwrap();
         let clip = Clip {
-            id:            "clip".into(),
-            format:        CameraFormat::Braw,
-            primary_file:  f,
+            id: "clip".into(),
+            format: CameraFormat::Braw,
+            primary_file: f,
             sidecar_files: Vec::new(),
-            total_size:    4,
-            metadata:      ClipMetadata::default(),
+            total_size: 4,
+            metadata: ClipMetadata::default(),
         };
         let integrity = verify_clip_integrity(&clip).unwrap();
         assert!(integrity.all_parts_ok);
@@ -554,12 +569,12 @@ mod tests {
     fn verify_clip_missing_primary() {
         let base = tmp("clip_missing");
         let clip = Clip {
-            id:            "clip".into(),
-            format:        CameraFormat::Braw,
-            primary_file:  base.join("nonexistent.braw"),
+            id: "clip".into(),
+            format: CameraFormat::Braw,
+            primary_file: base.join("nonexistent.braw"),
             sidecar_files: Vec::new(),
-            total_size:    0,
-            metadata:      ClipMetadata::default(),
+            total_size: 0,
+            metadata: ClipMetadata::default(),
         };
         let integrity = verify_clip_integrity(&clip).unwrap();
         assert!(!integrity.all_parts_ok);
@@ -573,14 +588,14 @@ mod tests {
         let f = base.join("A001_C001_250328.braw");
         std::fs::write(&f, b"data").unwrap();
         let clip = Clip {
-            id:            "A001_C001_250328".into(),
-            format:        CameraFormat::Braw,
-            primary_file:  f,
+            id: "A001_C001_250328".into(),
+            format: CameraFormat::Braw,
+            primary_file: f,
             sidecar_files: Vec::new(),
-            total_size:    4,
-            metadata:      ClipMetadata {
+            total_size: 4,
+            metadata: ClipMetadata {
                 camera_id: Some("A001".into()),
-                reel:      Some("R1AB".into()),
+                reel: Some("R1AB".into()),
                 ..Default::default()
             },
         };

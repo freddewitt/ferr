@@ -1,7 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-
 // ---------------------------------------------------------------------------
 // VerifyReport
 // ---------------------------------------------------------------------------
@@ -262,7 +261,9 @@ mod tests {
 
         let hasher = XxHasher;
         let hash_a = hasher.hash_file(&dst.join("file_a.bin")).unwrap();
-        let hash_b = hasher.hash_file(&dst.join("sub").join("file_b.bin")).unwrap();
+        let hash_b = hasher
+            .hash_file(&dst.join("sub").join("file_b.bin"))
+            .unwrap();
 
         let manifest = ferr_report::Manifest {
             ferr_version: "0.1.0".into(),
@@ -310,22 +311,22 @@ mod tests {
 #[derive(Debug)]
 pub struct ScanProgress {
     pub scanned: usize,
-    pub total:   usize,
+    pub total: usize,
     pub current: PathBuf,
 }
 
 #[derive(Debug)]
 pub struct BitRotEntry {
-    pub path:          PathBuf,
+    pub path: PathBuf,
     pub expected_hash: String,
-    pub actual_hash:   String,
-    pub last_ok_date:  Option<String>,
+    pub actual_hash: String,
+    pub last_ok_date: Option<String>,
 }
 
 #[derive(Debug)]
 pub struct BitRotReport {
-    pub scanned:   usize,
-    pub skipped:   usize,
+    pub scanned: usize,
+    pub skipped: usize,
     pub corrupted: Vec<BitRotEntry>,
     pub scan_date: String,
 }
@@ -371,10 +372,10 @@ pub fn scan_bitrot(
         let dest_file = dest.join(&rel);
         if !dest_file.exists() {
             corrupted.push(BitRotEntry {
-                path:          rel,
+                path: rel,
                 expected_hash: entry.hash.clone(),
-                actual_hash:   "(manquant)".to_string(),
-                last_ok_date:  Some(entry.modified_at.clone()),
+                actual_hash: "(manquant)".to_string(),
+                last_ok_date: Some(entry.modified_at.clone()),
             });
             scanned += 1;
             continue;
@@ -383,10 +384,10 @@ pub fn scan_bitrot(
         let actual = hasher.hash_file(&dest_file)?;
         if actual.hex != entry.hash {
             corrupted.push(BitRotEntry {
-                path:          rel,
+                path: rel,
                 expected_hash: entry.hash.clone(),
-                actual_hash:   actual.hex,
-                last_ok_date:  Some(entry.modified_at.clone()),
+                actual_hash: actual.hex,
+                last_ok_date: Some(entry.modified_at.clone()),
             });
         }
         scanned += 1;
@@ -407,29 +408,27 @@ mod scan_tests {
 
     fn make_manifest_for_dir(dir: &Path) -> ferr_report::Manifest {
         let hasher = XxHasher;
-        let files = vec![
-            {
-                let h = hasher.hash_file(&dir.join("file_a.bin")).unwrap();
-                ferr_report::FileEntry {
-                    path:           "file_a.bin".into(),
-                    size:           h.bytes_read,
-                    hash_algo:      "xxhash64".into(),
-                    hash:           h.hex,
-                    modified_at:    "2020-01-01T00:00:00Z".into(),
-                    status:         ferr_report::FileStatus::Ok,
-                    par2_generated: false,
-                }
-            },
-        ];
+        let files = vec![{
+            let h = hasher.hash_file(&dir.join("file_a.bin")).unwrap();
+            ferr_report::FileEntry {
+                path: "file_a.bin".into(),
+                size: h.bytes_read,
+                hash_algo: "xxhash64".into(),
+                hash: h.hex,
+                modified_at: "2020-01-01T00:00:00Z".into(),
+                status: ferr_report::FileStatus::Ok,
+                par2_generated: false,
+            }
+        }];
         ferr_report::Manifest {
-            ferr_version:    "0.1.0".into(),
-            generated_at:    "2020-01-01T00:00:00Z".into(),
-            hostname:        "host".into(),
-            source_path:     "/src".into(),
-            total_files:     1,
+            ferr_version: "0.1.0".into(),
+            generated_at: "2020-01-01T00:00:00Z".into(),
+            hostname: "host".into(),
+            source_path: "/src".into(),
+            total_files: 1,
             total_size_bytes: 9,
-            duration_secs:   0.1,
-            status:          ferr_report::JobStatus::Ok,
+            duration_secs: 0.1,
+            status: ferr_report::JobStatus::Ok,
             files,
         }
     }

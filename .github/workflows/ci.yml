@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: ["main", "dev"]
+    tags: ["v*"]
   pull_request:
     branches: ["main"]
 
@@ -43,7 +44,6 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-cargo-
 
-      # par2cmdline est requis pour les tests d'intégration PAR2
       - name: Install par2cmdline (Ubuntu)
         if: matrix.os == 'ubuntu-latest'
         run: sudo apt-get install -y par2
@@ -55,7 +55,7 @@ jobs:
       - name: Install par2cmdline (Windows)
         if: matrix.os == 'windows-latest'
         run: choco install par2 -y
-        continue-on-error: true  # non bloquant si indisponible
+        continue-on-error: true
 
       - name: Build
         run: cargo build --workspace
@@ -63,14 +63,12 @@ jobs:
       - name: Clippy (warnings as errors)
         run: cargo clippy --workspace --all-targets -- -D warnings
 
-      - name: Tests unitaires
+      - name: Tests
         run: cargo test --workspace
-        env:
-          FERR_PAR2_STUB: ""  # utiliser le vrai par2 si installé
 
-      - name: Tests d'intégration PAR2 (ignorés par défaut)
+      - name: Tests PAR2 intégration
         run: cargo test -p ferr-par2 -- --include-ignored
-        continue-on-error: true  # PAR2 peut être absent sur certains runners
+        continue-on-error: true
 
   # ─────────────────────────────────────────────────────────────────
   # Vérification du format
@@ -86,24 +84,31 @@ jobs:
       - run: cargo fmt --all -- --check
 
   # ─────────────────────────────────────────────────────────────────
-  # Build release + artefacts
+  # Release — déclenché sur tag v*
+  # Construit les binaires sur chaque OS, les empaquette et les publie
   # ─────────────────────────────────────────────────────────────────
   release:
-    name: Release build (${{ matrix.target }})
+    name: Release (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
-    if: github.ref == 'refs/heads/main'
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [test, fmt]
+    permissions:
+      contents: write
     strategy:
       matrix:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             binary: ferr
+            archive: ferr-linux-x86_64.tar.gz
           - os: macos-latest
             target: aarch64-apple-darwin
             binary: ferr
+            archive: ferr-macos-aarch64.tar.gz
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             binary: ferr.exe
+            archive: ferr-windows-x86_64.zip
 
     steps:
       - uses: actions/checkout@v4
@@ -124,9 +129,23 @@ jobs:
       - name: Build release
         run: cargo build --release --target ${{ matrix.target }} -p ferr-cli
 
-      - name: Upload binary
-        uses: actions/upload-artifact@v4
+      - name: Package (Linux / macOS)
+        if: matrix.os != 'windows-latest'
+        run: |
+          cd target/${{ matrix.target }}/release
+          tar czf ${{ github.workspace }}/${{ matrix.archive }} ${{ matrix.binary }}
+
+      - name: Package (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          Compress-Archive `
+            -Path "target/${{ matrix.target }}/release/${{ matrix.binary }}" `
+            -DestinationPath "${{ matrix.archive }}"
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
         with:
-          name: ferr-${{ matrix.target }}
-          path: target/${{ matrix.target }}/release/${{ matrix.binary }}
-          retention-days: 30
+          files: ${{ matrix.archive }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true

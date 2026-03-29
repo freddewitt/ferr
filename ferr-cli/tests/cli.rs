@@ -52,7 +52,9 @@ fn help_lists_all_commands() {
     let out = run(ferr().arg("--help"));
     assert!(out.status.success(), "ferr --help a échoué");
     let s = stdout(&out);
-    for cmd in &["copy", "verify", "repair", "scan", "watch", "export", "report", "profile", "history"] {
+    for cmd in &[
+        "copy", "verify", "repair", "scan", "watch", "export", "report", "profile", "history",
+    ] {
         assert!(s.contains(cmd), "commande '{cmd}' absente du --help");
     }
 }
@@ -91,7 +93,10 @@ fn copy_basic() {
     }
 
     // Le manifest JSON est généré
-    assert!(dst.join("ferr-manifest.json").exists(), "ferr-manifest.json absent");
+    assert!(
+        dst.join("ferr-manifest.json").exists(),
+        "ferr-manifest.json absent"
+    );
 
     std::fs::remove_dir_all(&src).ok();
     std::fs::remove_dir_all(&dst).ok();
@@ -107,13 +112,13 @@ fn copy_dry_run_writes_nothing() {
     let dst = tmp("dryrun_dst");
     make_source(&src, 3, 1024);
 
-    let out = run(ferr()
-        .arg("copy")
-        .arg(&src)
-        .arg(&dst)
-        .arg("--dry-run"));
+    let out = run(ferr().arg("copy").arg(&src).arg(&dst).arg("--dry-run"));
 
-    assert!(out.status.success(), "ferr copy --dry-run a échoué: {}", stderr(&out));
+    assert!(
+        out.status.success(),
+        "ferr copy --dry-run a échoué: {}",
+        stderr(&out)
+    );
 
     // La destination ne doit contenir aucun fichier source
     for i in 0..3 {
@@ -144,8 +149,13 @@ fn verify_ok_from_manifest() {
     make_source(&src, 3, 1024);
 
     // Copie d'abord
-    run(ferr().arg("copy").arg(&src).arg(&dst)
-        .arg("--no-notify").arg("--no-pdf").arg("--quiet"));
+    run(ferr()
+        .arg("copy")
+        .arg(&src)
+        .arg(&dst)
+        .arg("--no-notify")
+        .arg("--no-pdf")
+        .arg("--quiet"));
 
     let manifest = dst.join("ferr-manifest.json");
     assert!(manifest.exists());
@@ -168,8 +178,13 @@ fn verify_detects_corruption() {
     let dst = tmp("vcorrupt_dst");
     make_source(&src, 3, 4096);
 
-    run(ferr().arg("copy").arg(&src).arg(&dst)
-        .arg("--no-notify").arg("--no-pdf").arg("--quiet"));
+    run(ferr()
+        .arg("copy")
+        .arg(&src)
+        .arg(&dst)
+        .arg("--no-notify")
+        .arg("--no-pdf")
+        .arg("--quiet"));
 
     // Corrompre un fichier
     let file = dst.join("clip000.dat");
@@ -199,14 +214,20 @@ fn scan_clean_returns_zero() {
     let dst = tmp("scan_dst");
     make_source(&src, 3, 2048);
 
-    run(ferr().arg("copy").arg(&src).arg(&dst)
-        .arg("--no-notify").arg("--no-pdf").arg("--quiet"));
+    run(ferr()
+        .arg("copy")
+        .arg(&src)
+        .arg(&dst)
+        .arg("--no-notify")
+        .arg("--no-pdf")
+        .arg("--quiet"));
 
     let manifest = dst.join("ferr-manifest.json");
     let out = run(ferr()
         .arg("scan")
         .arg(&dst)
-        .arg("--manifest").arg(&manifest)
+        .arg("--manifest")
+        .arg(&manifest)
         .arg("--quiet"));
 
     assert_eq!(
@@ -226,8 +247,13 @@ fn scan_detects_bitrot() {
     let dst = tmp("bitrot_dst");
     make_source(&src, 3, 4096);
 
-    run(ferr().arg("copy").arg(&src).arg(&dst)
-        .arg("--no-notify").arg("--no-pdf").arg("--quiet"));
+    run(ferr()
+        .arg("copy")
+        .arg(&src)
+        .arg(&dst)
+        .arg("--no-notify")
+        .arg("--no-pdf")
+        .arg("--quiet"));
 
     // Bit rot in-place
     let file = dst.join("clip001.dat");
@@ -239,7 +265,8 @@ fn scan_detects_bitrot() {
     let out = run(ferr()
         .arg("scan")
         .arg(&dst)
-        .arg("--manifest").arg(&manifest)
+        .arg("--manifest")
+        .arg(&manifest)
         .arg("--quiet"));
 
     assert_eq!(
@@ -263,18 +290,30 @@ fn export_ale_creates_file() {
     let dst = tmp("export_ale_dst");
     make_source(&src, 2, 512);
 
-    run(ferr().arg("copy").arg(&src).arg(&dst)
-        .arg("--no-notify").arg("--no-pdf").arg("--quiet"));
+    run(ferr()
+        .arg("copy")
+        .arg(&src)
+        .arg(&dst)
+        .arg("--no-notify")
+        .arg("--no-pdf")
+        .arg("--quiet"));
 
     let manifest = dst.join("ferr-manifest.json");
     let ale = dst.join("export.ale");
 
-    let out = run(ferr().arg("export")
+    let out = run(ferr()
+        .arg("export")
         .arg(&manifest)
-        .arg("--format").arg("ale")
-        .arg("--output").arg(&ale));
+        .arg("--format")
+        .arg("ale")
+        .arg("--output")
+        .arg(&ale));
 
-    assert!(out.status.success(), "ferr export ALE a échoué: {}", stderr(&out));
+    assert!(
+        out.status.success(),
+        "ferr export ALE a échoué: {}",
+        stderr(&out)
+    );
     assert!(ale.exists(), "Fichier .ale absent");
 
     let content = std::fs::read_to_string(&ale).unwrap();
@@ -290,18 +329,30 @@ fn export_csv_creates_file() {
     let dst = tmp("export_csv_dst");
     make_source(&src, 2, 512);
 
-    run(ferr().arg("copy").arg(&src).arg(&dst)
-        .arg("--no-notify").arg("--no-pdf").arg("--quiet"));
+    run(ferr()
+        .arg("copy")
+        .arg(&src)
+        .arg(&dst)
+        .arg("--no-notify")
+        .arg("--no-pdf")
+        .arg("--quiet"));
 
     let manifest = dst.join("ferr-manifest.json");
     let csv = dst.join("export.csv");
 
-    let out = run(ferr().arg("export")
+    let out = run(ferr()
+        .arg("export")
         .arg(&manifest)
-        .arg("--format").arg("csv")
-        .arg("--output").arg(&csv));
+        .arg("--format")
+        .arg("csv")
+        .arg("--output")
+        .arg(&csv));
 
-    assert!(out.status.success(), "ferr export CSV a échoué: {}", stderr(&out));
+    assert!(
+        out.status.success(),
+        "ferr export CSV a échoué: {}",
+        stderr(&out)
+    );
     assert!(csv.exists(), "Fichier .csv absent");
 
     let content = std::fs::read_to_string(&csv).unwrap();
@@ -321,17 +372,28 @@ fn report_creates_pdf() {
     let dst = tmp("report_dst");
     make_source(&src, 3, 512);
 
-    run(ferr().arg("copy").arg(&src).arg(&dst)
-        .arg("--no-notify").arg("--no-pdf").arg("--quiet"));
+    run(ferr()
+        .arg("copy")
+        .arg(&src)
+        .arg(&dst)
+        .arg("--no-notify")
+        .arg("--no-pdf")
+        .arg("--quiet"));
 
     let manifest = dst.join("ferr-manifest.json");
     let pdf = dst.join("test_report.pdf");
 
-    let out = run(ferr().arg("report")
+    let out = run(ferr()
+        .arg("report")
         .arg(&manifest)
-        .arg("--output").arg(&pdf));
+        .arg("--output")
+        .arg(&pdf));
 
-    assert!(out.status.success(), "ferr report a échoué: {}", stderr(&out));
+    assert!(
+        out.status.success(),
+        "ferr report a échoué: {}",
+        stderr(&out)
+    );
     assert!(pdf.exists(), "Fichier PDF absent");
 
     let header = &std::fs::read(&pdf).unwrap()[..4];
@@ -350,11 +412,19 @@ fn profile_lifecycle() {
     let profile_name = format!("test_profile_{}", COUNTER.fetch_add(1, Ordering::Relaxed));
 
     // Sauvegarder
-    let out = run(ferr().arg("profile").arg("save")
+    let out = run(ferr()
+        .arg("profile")
+        .arg("save")
         .arg(&profile_name)
-        .arg("--dest").arg("/tmp/dummy")
-        .arg("--hash").arg("sha256"));
-    assert!(out.status.success(), "profile save a échoué: {}", stderr(&out));
+        .arg("--dest")
+        .arg("/tmp/dummy")
+        .arg("--hash")
+        .arg("sha256"));
+    assert!(
+        out.status.success(),
+        "profile save a échoué: {}",
+        stderr(&out)
+    );
 
     // Lister — doit contenir le profil
     let out = run(ferr().arg("profile").arg("list"));
@@ -366,15 +436,23 @@ fn profile_lifecycle() {
 
     // Afficher — JSON valide
     let out = run(ferr().arg("profile").arg("show").arg(&profile_name));
-    assert!(out.status.success(), "profile show a échoué: {}", stderr(&out));
-    let json: serde_json::Value = serde_json::from_str(&stdout(&out))
-        .expect("profile show devrait retourner du JSON valide");
+    assert!(
+        out.status.success(),
+        "profile show a échoué: {}",
+        stderr(&out)
+    );
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout(&out)).expect("profile show devrait retourner du JSON valide");
     assert_eq!(json["name"], profile_name.as_str());
     assert_eq!(json["hash_algo"], "sha256");
 
     // Supprimer
     let out = run(ferr().arg("profile").arg("delete").arg(&profile_name));
-    assert!(out.status.success(), "profile delete a échoué: {}", stderr(&out));
+    assert!(
+        out.status.success(),
+        "profile delete a échoué: {}",
+        stderr(&out)
+    );
 
     // La liste ne doit plus contenir le profil
     let out = run(ferr().arg("profile").arg("list"));
@@ -450,7 +528,11 @@ fn no_color_env_disables_ansi() {
         .output()
         .unwrap();
 
-    assert!(out.status.success(), "ferr copy avec NO_COLOR a échoué: {}", stderr(&out));
+    assert!(
+        out.status.success(),
+        "ferr copy avec NO_COLOR a échoué: {}",
+        stderr(&out)
+    );
 
     let combined = format!("{}{}", stdout(&out), stderr(&out));
     // Pas de séquences ANSI
