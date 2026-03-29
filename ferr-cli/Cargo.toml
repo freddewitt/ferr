@@ -1,0 +1,27 @@
+[package]
+name    = "ferr-cli"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[[bin]]
+name = "ferr"
+path = "src/main.rs"
+
+[dependencies]
+clap        = { workspace = true }
+indicatif   = { workspace = true }
+console     = { workspace = true }
+anyhow      = { workspace = true }
+ferr-core   = { path = "../ferr-core" }
+ferr-report = { path = "../ferr-report" }
+ferr-verify = { path = "../ferr-verify" }
+ferr-par2   = { path = "../ferr-par2" }
+ferr-hash    = { path = "../ferr-hash" }
+ferr-session = { path = "../ferr-session" }
+ferr-pdf     = { path = "../ferr-pdf" }
+chrono       = { workspace = true }
+serde_json   = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

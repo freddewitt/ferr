@@ -1,0 +1,40 @@
+[workspace]
+members  = [
+    "ferr-hash",
+    "ferr-report",
+    "ferr-par2",
+    "ferr-transfer",
+    "ferr-verify",
+    "ferr-camera",
+    "ferr-session",
+    "ferr-notify",
+    "ferr-pdf",
+    "ferr-core",
+    "ferr-cli",
+]
+resolver = "2"
+
+[workspace.dependencies]
+xxhash-rust  = { version = "0.8",  features = ["xxh64"] }
+sha2         = "0.10"
+rayon        = "1"
+indicatif    = { version = "0.17", features = ["rayon"] }
+clap         = { version = "4",    features = ["derive"] }
+serde        = { version = "1",    features = ["derive"] }
+serde_json   = "1"
+chrono       = { version = "0.4",  features = ["serde"] }
+hostname     = "0.4"
+thiserror    = "1"
+anyhow       = "1"
+console      = "0.15"
+filetime     = "0.2"
+notify       = "6"
+notify-rust  = "4"
+printpdf     = "0.7"
+rusqlite     = { version = "0.31", features = ["bundled"] }
+libc         = "0.2"
+windows-sys  = { version = "0.52", features = [
+    "Win32_Storage_FileSystem",
+    "Win32_Foundation",
+] }
+xattr        = "1"

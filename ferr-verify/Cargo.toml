@@ -1,0 +1,12 @@
+[package]
+name    = "ferr-verify"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[dependencies]
+thiserror   = { workspace = true }
+anyhow      = { workspace = true }
+chrono      = { workspace = true }
+ferr-hash   = { path = "../ferr-hash" }
+ferr-report = { path = "../ferr-report" }

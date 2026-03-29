@@ -1,0 +1,13 @@
+[package]
+name    = "ferr-pdf"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[dependencies]
+printpdf    = { workspace = true }
+anyhow      = { workspace = true }
+chrono      = { workspace = true }
+ferr-report = { path = "../ferr-report" }
+ferr-hash   = { path = "../ferr-hash" }
+serde_json  = { workspace = true }

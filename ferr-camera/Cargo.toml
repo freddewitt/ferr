@@ -1,0 +1,10 @@
+[package]
+name    = "ferr-camera"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[dependencies]
+serde     = { workspace = true }
+thiserror = { workspace = true }
+anyhow    = { workspace = true }

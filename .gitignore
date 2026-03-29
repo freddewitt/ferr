@@ -1,0 +1,7 @@
+/target
+*.pdf
+*.ale
+*.csv
+**/*.par2
+**/_par2/
+.DS_Store

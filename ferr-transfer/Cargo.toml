@@ -1,0 +1,22 @@
+[package]
+name    = "ferr-transfer"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[dependencies]
+rayon       = { workspace = true }
+thiserror   = { workspace = true }
+anyhow      = { workspace = true }
+filetime    = { workspace = true }
+ferr-hash   = { path = "../ferr-hash" }
+ferr-report = { path = "../ferr-report" }
+
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+xattr = { workspace = true }
