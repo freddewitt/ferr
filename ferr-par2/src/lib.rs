@@ -1,21 +1,13 @@
-//! ferr-par2 — génération, vérification et réparation PAR2 via subprocess par2cmdline.
-//!
-//! # Dépendance système
-//! Requiert le binaire `par2` (par2cmdline ≥ 0.8) ou les binaires legacy
-//! `par2create` / `par2verify` / `par2repair`.
-//!
-//! Installation :
-//! - macOS  : `brew install par2`
-//! - Debian : `apt install par2`
-//! - Windows: `winget install par2cmdline`
-//!
-//! # Stub
-//! Si la variable d'environnement `FERR_PAR2_STUB=1` est définie à la compilation
-//! (via cargo), toutes les fonctions retournent une erreur explicative sans
-//! tenter d'invoquer le binaire. Utile pour les tests CI sans par2 installé.
+//! # Fonctionnement
+//! - **Génération** : Requiert le binaire externe `par2` (subprocess).
+//! - **Vérification / Réparation** : Native via la bibliothèque `rust_par2` (aucun binaire requis).
 
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+#[cfg(unix)]
+use std::os::unix::fs::symlink;
+#[cfg(windows)]
+use std::os::windows::fs::symlink_file as symlink;
 
 // ---------------------------------------------------------------------------
 // Types publics
@@ -152,16 +144,6 @@ fn collect_files_rec(dir: &Path, out: &mut Vec<PathBuf>) {
 // ---------------------------------------------------------------------------
 // Parsing de la sortie par2cmdline
 // ---------------------------------------------------------------------------
-
-/// Extrait un pourcentage depuis une ligne comme "Repairing: 45.2%"
-fn parse_pct(line: &str) -> Option<u8> {
-    let pct_idx = line.find('%')?;
-    let before = &line[..pct_idx];
-    let token = before.split_whitespace().last()?;
-    // Accepte "45" ou "45.2"
-    let val: f32 = token.parse().ok()?;
-    Some(val.clamp(0.0, 100.0) as u8)
-}
 
 /// Découpe la sortie par2 en tokens en splitant sur '\n' et '\r'
 /// (par2 utilise '\r' pour les mises à jour de progression sur terminal).
@@ -306,61 +288,20 @@ pub fn generate(
 /// `par2_index` : chemin vers le fichier `.par2` index (ex. `_par2/ferr.par2`).
 /// `target_dir` : répertoire contenant les fichiers originaux.
 pub fn verify(par2_index: &Path, target_dir: &Path) -> anyhow::Result<Par2VerifyStatus> {
-    // ── Stub ──────────────────────────────────────────────────────────────
-    #[cfg(par2_stub)]
-    {
-        anyhow::bail!("ferr-par2: vérification PAR2 désactivée (stub).");
-    }
+    // Créer une vue consolidée (data + parity) via des symlinks temporaires
+    let view = Par2View::create(par2_index, target_dir)?;
 
-    // ── Implémentation subprocess ─────────────────────────────────────────
-    #[cfg(not(par2_stub))]
-    {
-        let style = find_par2_binary().ok_or_else(par2_not_found_error)?;
+    let file_set = rust_par2::parse(par2_index)
+        .map_err(|e| anyhow::anyhow!("Échec du parsing du fichier PAR2 : {:?}", e))?;
 
-        let mut cmd = match style {
-            Par2Style::Modern => {
-                let mut c = std::process::Command::new("par2");
-                c.arg("verify");
-                c
-            }
-            Par2Style::Legacy => std::process::Command::new("par2verify"),
-        };
+    let result = rust_par2::verify(&file_set, &view.path);
 
-        cmd.arg(format!("-B{}", target_dir.display()))
-            .arg(par2_index)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-
-        let output = cmd
-            .output()
-            .map_err(|e| anyhow::anyhow!("Impossible de lancer par2verify : {e}"))?;
-
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let combined = format!("{stdout}{stderr}");
-
-        // par2cmdline imprime ces chaînes fixes sur stdout.
-        // IMPORTANT : tester "not possible" AVANT "possible" car l'un contient l'autre.
-        let c = combined.to_lowercase();
-        if c.contains("repair is not required") || c.contains("all files are correct") {
-            Ok(Par2VerifyStatus::Ok)
-        } else if c.contains("repair is not possible")
-            || c.contains("cannot be repaired")
-            || c.contains("you need")
-        {
-            Ok(Par2VerifyStatus::Unrecoverable)
-        } else if c.contains("repair is possible")
-            || c.contains("repair is required")
-            || c.contains("repairable")
-        {
-            Ok(Par2VerifyStatus::Repairable)
-        } else if output.status.success() {
-            // Code de retour 0 sans message clair → OK
-            Ok(Par2VerifyStatus::Ok)
-        } else {
-            // Code ≥ 1 sans message clair → irréparable
-            Ok(Par2VerifyStatus::Unrecoverable)
-        }
+    if result.all_correct() {
+        Ok(Par2VerifyStatus::Ok)
+    } else if result.repair_possible {
+        Ok(Par2VerifyStatus::Repairable)
+    } else {
+        Ok(Par2VerifyStatus::Unrecoverable)
     }
 }
 
@@ -374,52 +315,96 @@ pub fn repair(
 ) -> anyhow::Result<Par2RepairStatus> {
     on_progress(0);
 
-    // ── Stub ──────────────────────────────────────────────────────────────
-    #[cfg(par2_stub)]
-    {
-        anyhow::bail!("ferr-par2: réparation PAR2 désactivée (stub).");
+    // Créer une vue consolidée (data + parity) via des symlinks temporaires
+    let view = Par2View::create(par2_index, target_dir)?;
+
+    let file_set = rust_par2::parse(par2_index)
+        .map_err(|e| anyhow::anyhow!("Échec du parsing du fichier PAR2 : {:?}", e))?;
+
+    on_progress(10);
+
+    // rust_par2 écrit dans les fichiers ; comme ce sont des symlinks vers target_dir,
+    // la réparation se fait "in-place" sur les originaux.
+    match rust_par2::repair(&file_set, &view.path) {
+        Ok(_) => {
+            on_progress(100);
+            Ok(Par2RepairStatus::Repaired)
+        }
+        Err(e) => {
+            eprintln!("Erreur de réparation native : {:?}", e);
+            Ok(Par2RepairStatus::Failed)
+        }
     }
+}
 
-    // ── Implémentation subprocess ─────────────────────────────────────────
-    #[cfg(not(par2_stub))]
-    {
-        let style = find_par2_binary().ok_or_else(par2_not_found_error)?;
+// ---------------------------------------------------------------------------
+// Par2View : Vue consolidée par symlinks
+// ---------------------------------------------------------------------------
 
-        let mut cmd = match style {
-            Par2Style::Modern => {
-                let mut c = std::process::Command::new("par2");
-                c.arg("repair");
-                c
-            }
-            Par2Style::Legacy => std::process::Command::new("par2repair"),
-        };
+struct Par2View {
+    path: PathBuf,
+}
 
-        cmd.arg(format!("-B{}", target_dir.display()))
-            .arg(par2_index);
+impl Par2View {
+    fn create(par2_index: &Path, target_dir: &Path) -> anyhow::Result<Self> {
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let view_path = std::env::temp_dir().join(format!("par2_view_{}", timestamp));
+        std::fs::create_dir_all(&view_path)?;
 
-        let output = cmd
-            .output()
-            .map_err(|e| anyhow::anyhow!("Impossible de lancer par2repair : {e}"))?;
+        // 1. Symlinks vers les fichiers de donnée (RECURSIF)
+        //    Il faut recréer la structure de dossiers pour que rust_par2
+        //    retrouve "folder/file.dat".
+        Self::link_dir_rec(target_dir, &view_path, target_dir)?;
 
-        // Rejouer les pourcentages depuis la sortie collectée.
-        // par2 imprime "Repairing: 45.2%" avec \r — on split sur \r|\n.
-        let mut last_pct: u8 = 0;
-        for token in split_par2_output(&output.stdout) {
-            if let Some(pct) = parse_pct(&token) {
-                if pct > last_pct {
-                    on_progress(pct);
-                    last_pct = pct;
+        // 2. Symlinks vers les fichiers PAR2 (index + volumes)
+        if let Some(par2_dir) = par2_index.parent() {
+            for entry in std::fs::read_dir(par2_dir)? {
+                let entry = entry?;
+                let path = entry.path();
+                if path.extension().map_or(false, |e| e == "par2") {
+                    let name = entry.file_name();
+                    let dest = view_path.join(&name);
+                    if !dest.exists() {
+                        let _ = symlink(path, dest);
+                    }
                 }
             }
         }
-        on_progress(100);
 
-        // par2repair : code 0 = réparé, ≠0 = irréparable ou erreur
-        if output.status.success() {
-            Ok(Par2RepairStatus::Repaired)
-        } else {
-            Ok(Par2RepairStatus::Failed)
+        Ok(Self { path: view_path })
+    }
+
+    fn link_dir_rec(src_dir: &Path, view_root: &Path, target_root: &Path) -> anyhow::Result<()> {
+        for entry in std::fs::read_dir(src_dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            let rel_path = path.strip_prefix(target_root)?;
+            let dest = view_root.join(rel_path);
+
+            if path.is_dir() {
+                // Éviter de boucler ou de descendre dans _par2 si on est à la racine
+                if path.file_name().map_or(false, |n| n == "_par2") {
+                    continue;
+                }
+                std::fs::create_dir_all(&dest)?;
+                Self::link_dir_rec(&path, view_root, target_root)?;
+            } else if path.is_file() {
+                // Ne pas symlinker les fichiers qu'on veut ignorer (le pdf de rapport, etc)
+                // si on veut être strict, mais ici on peut tout symlinker, rust_par2
+                // ne s'intéressera qu'à ce qu'il connaît.
+                let _ = symlink(path, dest);
+            }
         }
+        Ok(())
+    }
+}
+
+impl Drop for Par2View {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.path);
     }
 }
 
@@ -447,13 +432,6 @@ mod tests {
         assert!(result.unwrap_err().to_string().contains("entre 1 et 40"));
     }
 
-    #[test]
-    fn parse_pct_various_formats() {
-        assert_eq!(parse_pct("Repairing: 45.2%"), Some(45));
-        assert_eq!(parse_pct("Repairing: 100%"), Some(100));
-        assert_eq!(parse_pct("Progress: 0%"), Some(0));
-        assert_eq!(parse_pct("no percentage here"), None);
-    }
 
     #[test]
     fn collect_files_excludes_par2_and_manifest() {
@@ -494,20 +472,6 @@ mod tests {
         let result = generate(Path::new("/tmp"), Path::new("/tmp"), 10, |_| {});
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("stub"));
-    }
-
-    #[cfg(par2_stub)]
-    #[test]
-    fn verify_stub_returns_error() {
-        let result = verify(Path::new("/tmp/test.par2"), Path::new("/tmp"));
-        assert!(result.is_err());
-    }
-
-    #[cfg(par2_stub)]
-    #[test]
-    fn repair_stub_returns_error() {
-        let result = repair(Path::new("/tmp/test.par2"), Path::new("/tmp"), |_| {});
-        assert!(result.is_err());
     }
 
     // ── Tests d'intégration réels (nécessitent par2 installé) ─────────────

@@ -1,0 +1,13 @@
+[package]
+name = "ferr-cert"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ferr-report = { path = "../ferr-report" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+base64 = "0.22"

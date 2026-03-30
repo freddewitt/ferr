@@ -19,6 +19,7 @@
    - [report](#report)
    - [profile](#profile)
    - [history](#history)
+   - [cert](#cert)
 5. [Codes de sortie](#codes-de-sortie)
 6. [Formats de fichiers](#formats-de-fichiers)
 7. [Modèles de renommage](#modèles-de-renommage)
@@ -443,9 +444,71 @@ ferr history show 42
 
 Recherche un fichier par hash ou nom.
 
-```sh
+```
 ferr history find abcdef1234567890
 ferr history find A001_C001.braw
+```
+
+---
+
+### cert
+
+Gère les certificats d'intégrité (`.ferrcert`). Un certificat est un manifeste encapsulé (format PEM) permettant à un tiers de vérifier l'intégrité d'un dossier sans accès à la base de données originale.
+
+```
+ferr cert <SOUS-COMMANDE>
+```
+
+#### cert create
+
+Crée un certificat pour un dossier ou un fichier.
+
+```
+ferr cert create <SRC> [OPTIONS]
+```
+
+| Option | Type | Défaut | Description |
+|--------|------|--------|-------------|
+| `--output <PATH>` | Chemin | `<SRC>.ferrcert` | Fichier de sortie |
+| `--hash <ALGO>` | `xxhash` \| `sha256` | `xxhash` | Algorithme de hachage |
+| `--quiet` | flag | false | Mode silencieux |
+
+**Exemple**
+
+```sh
+# Créer un certificat pour un dossier
+ferr cert create /Volumes/A001 --output A001.ferrcert
+```
+
+#### cert verify
+
+Vérifie un dossier contre un certificat reçu.
+
+```
+ferr cert verify <CERT> <DEST> [OPTIONS]
+```
+
+| Argument | Description |
+|----------|-------------|
+| `CERT` | Fichier certificat (`.ferrcert`) |
+| `DEST` | Répertoire de destination à vérifier |
+
+**Exemple**
+
+```sh
+# Vérifier l'intégrité d'un dossier reçu avec son certificat
+ferr cert verify A001.ferrcert /mnt/transfer/A001
+```
+
+**Format du certificat**
+
+Le fichier `.ferrcert` utilise un format texte inspiré du PEM, encapsulant un manifest JSON encodé en Base64 avec une signature d'intégrité interne :
+
+```text
+-----BEGIN FERR CERTIFICATE-----
+MIIEpAIBAAKCAQEA75...
+...
+-----END FERR CERTIFICATE-----
 ```
 
 ---

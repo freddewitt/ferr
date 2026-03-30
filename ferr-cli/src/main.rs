@@ -128,6 +128,11 @@ enum Commands {
         #[command(subcommand)]
         action: HistoryAction,
     },
+    /// Gère les certificats d'intégrité
+    Cert {
+        #[command(subcommand)]
+        action: CertAction,
+    },
 }
 
 #[derive(Clone, ValueEnum)]
@@ -173,6 +178,27 @@ enum HistoryAction {
     },
     Find {
         hash_or_name: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum CertAction {
+    /// Crée un certificat pour un dossier
+    Create {
+        src: PathBuf,
+        #[arg(long)]
+        output: Option<PathBuf>,
+        #[arg(long, value_enum, default_value = "xxhash")]
+        hash: HashChoice,
+        #[arg(long)]
+        quiet: bool,
+    },
+    /// Vérifie un certificat reçu
+    Verify {
+        cert: PathBuf,
+        dest: PathBuf,
+        #[arg(long)]
+        quiet: bool,
     },
 }
 
@@ -278,6 +304,7 @@ fn run(cli: Cli) -> anyhow::Result<i32> {
         Commands::Report { manifest, output } => cmd_report(manifest, output),
         Commands::Profile { action } => cmd_profile(action),
         Commands::History { action } => cmd_history(action),
+        Commands::Cert { action } => cmd_cert(action),
     }
 }
 
@@ -980,5 +1007,81 @@ fn human_size(bytes: u64) -> String {
         format!("{:.0} Ko", bytes as f64 / KB as f64)
     } else {
         format!("{bytes} o")
+    }
+}
+
+// ---------------------------------------------------------------------------
+// cmd_cert
+// ---------------------------------------------------------------------------
+
+fn cmd_cert(action: CertAction) -> anyhow::Result<i32> {
+    match action {
+        CertAction::Create {
+            src,
+            output,
+            hash,
+            quiet,
+        } => {
+            let (hash_algo, _) = hash_choice_to_algo(&hash);
+            let bar = make_spinner("Génération du certificat en cours…", quiet);
+            
+            let manifest = ferr_core::generate_manifest(&src, hash_algo, |_| {})?;
+            let cert_data = ferr_cert::pack(&manifest)?;
+            
+            let out_path = output.unwrap_or_else(|| {
+                let name = src.file_name().unwrap_or_else(|| std::ffi::OsStr::new("cert")).to_string_lossy();
+                PathBuf::from(format!("{name}.ferrcert"))
+            });
+            std::fs::write(&out_path, cert_data)?;
+            
+            if let Some(b) = &bar { b.finish_and_clear(); }
+            if !quiet {
+                println!("  {} Certificat généré : {}", style("✓").green(), out_path.display());
+            }
+            Ok(0)
+        }
+        CertAction::Verify { cert, dest, quiet } => {
+            let bar = make_spinner("Vérification du certificat en cours…", quiet);
+            let cert_data = std::fs::read_to_string(&cert)?;
+            
+            match ferr_cert::unpack(&cert_data) {
+                Ok(manifest) => {
+                    let is_sha256 = manifest.files.first().map(|f| f.hash_algo.as_str()) == Some("sha256");
+                    let hasher: Box<dyn ferr_hash::Hasher> = if is_sha256 {
+                        Box::new(ferr_hash::Sha256Hasher)
+                    } else {
+                        Box::new(ferr_hash::XxHasher)
+                    };
+                    
+                    let report = ferr_verify::verify_manifest(&manifest, &dest, hasher.as_ref())?;
+                    if let Some(b) = &bar { b.finish_and_clear(); }
+                    
+                    if !quiet {
+                        println!(
+                            "\n  {} {} ok  {} manquants  {} corrompus",
+                            style("Résultat :").bold(),
+                            report.ok.len(),
+                            report.missing.len(),
+                            report.corrupted.len(),
+                        );
+                        for p in &report.missing {
+                            println!("  {} {}", style("MANQUANT").yellow(), p.display());
+                        }
+                        for p in &report.corrupted {
+                            println!("  {} {}", style("CORROMPU").red(), p.display());
+                        }
+                        if report.exit_code() == 0 {
+                            println!("  {}", style("Certificat valide et contenu intact ✓").green().bold());
+                        }
+                    }
+                    Ok(report.exit_code())
+                }
+                Err(e) => {
+                    if let Some(b) = &bar { b.finish_and_clear(); }
+                    println!("  {} Le certificat a été altéré ou est invalide : {}", style("✗ Erreur :").red().bold(), e);
+                    Ok(4)
+                }
+            }
+        }
     }
 }

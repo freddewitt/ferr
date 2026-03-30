@@ -22,6 +22,7 @@ ferr-session = { path = "../ferr-session" }
 ferr-pdf     = { path = "../ferr-pdf" }
 chrono       = { workspace = true }
 serde_json   = { workspace = true }
+ferr-cert = { version = "0.1.0", path = "../ferr-cert" }
 
 [dev-dependencies]
 serde_json = { workspace = true }

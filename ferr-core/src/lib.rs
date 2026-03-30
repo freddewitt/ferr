@@ -865,3 +865,112 @@ fn human_size(bytes: u64) -> String {
         format!("{bytes} o")
     }
 }
+
+// ---------------------------------------------------------------------------
+// generate_manifest (for Cert feature)
+// ---------------------------------------------------------------------------
+
+pub fn generate_manifest(
+    source: &Path,
+    algo: HashAlgo,
+    on_progress: impl Fn(CopyProgress) + Send,
+) -> anyhow::Result<ferr_report::Manifest> {
+    let start = Instant::now();
+    let hasher: Box<dyn ferr_hash::Hasher> = match algo {
+        HashAlgo::XxHash64 => Box::new(ferr_hash::XxHasher),
+        HashAlgo::Sha256 => Box::new(ferr_hash::Sha256Hasher),
+    };
+
+    let src_files = collect_files(source)?;
+    let total_files = src_files.len();
+    let mut file_entries: Vec<ferr_report::FileEntry> = Vec::new();
+    let mut total_size_bytes = 0u64;
+    let mut errors = 0usize;
+
+    for (idx, src_file) in src_files.iter().enumerate() {
+        let rel = src_file.strip_prefix(source)?;
+        let file_size = std::fs::metadata(src_file).map(|m| m.len()).unwrap_or(0);
+        let modified_at = std::fs::metadata(src_file)
+            .and_then(|m| m.modified())
+            .map(|t| {
+                let secs = t.duration_since(std::time::SystemTime::UNIX_EPOCH).unwrap_or_default().as_secs();
+                format_unix_time(secs)
+            })
+            .unwrap_or_else(|_| "unknown".to_string());
+
+        on_progress(CopyProgress {
+            current_file: rel.to_path_buf(),
+            file_bytes_done: 0,
+            file_bytes_total: file_size,
+            total_files_done: idx,
+            total_files,
+            speed_bytes_sec: speed_bytes_sec(total_size_bytes, start.elapsed().as_secs_f64()),
+            errors,
+            phase: CopyPhase::Verifying,
+            dedup_skipped: 0,
+        });
+
+        match hasher.hash_file(src_file) {
+            Ok(hash_result) => {
+                total_size_bytes += hash_result.bytes_read;
+                file_entries.push(ferr_report::FileEntry {
+                    path: rel.to_string_lossy().replace('\\', "/"),
+                    size: hash_result.bytes_read,
+                    hash_algo: hash_result.algo.to_string(),
+                    hash: hash_result.hex,
+                    modified_at,
+                    status: ferr_report::FileStatus::Ok,
+                    par2_generated: false,
+                });
+            }
+            Err(e) => {
+                errors += 1;
+                eprintln!("Erreur lors du hashage de {} : {e}", rel.display());
+                file_entries.push(ferr_report::FileEntry {
+                    path: rel.to_string_lossy().replace('\\', "/"),
+                    size: file_size,
+                    hash_algo: algo.to_string(),
+                    hash: String::new(),
+                    modified_at,
+                    status: ferr_report::FileStatus::Corrupted,
+                    par2_generated: false,
+                });
+            }
+        }
+    }
+
+    let duration_secs = start.elapsed().as_secs_f64();
+    let hostname = hostname::get().map(|h| h.to_string_lossy().into_owned()).unwrap_or_else(|_| "unknown".to_string());
+
+    let status = if errors == 0 {
+        ferr_report::JobStatus::Ok
+    } else if errors < total_files {
+        ferr_report::JobStatus::Partial
+    } else {
+        ferr_report::JobStatus::Failed
+    };
+
+    on_progress(CopyProgress {
+        current_file: PathBuf::from("(terminé)"),
+        file_bytes_done: total_size_bytes,
+        file_bytes_total: total_size_bytes,
+        total_files_done: total_files,
+        total_files,
+        speed_bytes_sec: speed_bytes_sec(total_size_bytes, duration_secs),
+        errors,
+        phase: CopyPhase::Done,
+        dedup_skipped: 0,
+    });
+
+    Ok(ferr_report::Manifest {
+        ferr_version: env!("CARGO_PKG_VERSION").to_string(),
+        generated_at: chrono::Utc::now().to_rfc3339(),
+        hostname,
+        source_path: source.to_string_lossy().into_owned(),
+        total_files,
+        total_size_bytes,
+        duration_secs,
+        status,
+        files: file_entries,
+    })
+}

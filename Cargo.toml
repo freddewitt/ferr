@@ -10,7 +10,7 @@ members  = [
     "ferr-notify",
     "ferr-pdf",
     "ferr-core",
-    "ferr-cli", "ferr-app",
+    "ferr-cli", "ferr-app", "ferr-cert",
 ]
 resolver = "2"
 
