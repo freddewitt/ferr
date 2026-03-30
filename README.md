@@ -19,8 +19,9 @@
 ## ✨ Key Features
 
 - **Parallel Transfers**: Copy from any source volume to one or multiple destinations simultaneously.
-- **Cryptographic Hashing**: Byte-for-byte hash verification (`XXH64` or `SHA-256`) calculated seamlessly on the fly.
-- **Data Redundancy**: Automatic `par2` parity generation via `par2cmdline` to prevent data rot.
+- **Cryptographic Hashing**: Byte-for-byte hash verification (`XXH64` or `SHA-256`) calculated on the fly.
+- **Data Redundancy**: Native `par2` verification and repair. (Generation still uses `par2cmdline` for maximum reliability).
+- **Portable Certificates**: Generate standalone JSON-based integrity certificates (`ferr cert`) for any file or folder.
 - **Session Manifests**: Cryptographically signed JSON manifests generated at the end of every transfer.
 - **Metadata Preservation**: Seamlessly carries over file timestamps and extended attributes (macOS `xattr`).
 - **DIT Automation**: Detects cinema camera formats (BRAW, R3D, ARRI, Sony, Canon, ProRes) and offers dynamic `{date}_{camera}_{clip}` renaming templates.
@@ -34,7 +35,8 @@
 
 **Prerequisites:**
 - **Rust stable ≥ 1.75** (`curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`)
-- **par2cmdline** *(Optional but recommended for redundancy)*: `brew install par2`
+- **par2cmdline** *(Required only for PAR2 generation)*: `brew install par2`
+- **Native Support**: Verification and repair are built-in (no external tools required).
 
 **Install from source:**
 ```sh
@@ -80,6 +82,12 @@ ferr verify /mnt/backup/ferr-manifest.json /mnt/backup
 
 # Scan for bit-rot or data degradation on cold storage
 ferr scan /mnt/backup
+
+# Generate a portable integrity certificate for a folder
+ferr cert create /Volumes/DriveA --output my_data.ferrcert
+
+# Verify a folder against a received certificate
+ferr cert verify my_data.ferrcert /mnt/receiver/DriveA
 ```
 
 ### Automation (Watch Mode)
@@ -124,7 +132,9 @@ Under the hood, `ferr` uses a multi-crate Cargo workspace to isolate its logic i
 - **`ferr-transfer`**: Manages atomic file copying to prevent partial writes.
 - **`ferr-hash`**: High-performance streaming hashing.
 - **`ferr-camera`**: Heuristic format detection and renaming engine.
-- **`ferr-par2`** / **`ferr-report`** / **`ferr-verify`**: Parity wrappers, JSON/ALE generation, and cold-storage scanning tools.
+- **`ferr-par2`**: Mixed-mode PAR2 engine (Native Verify/Repair, Subprocess Generation).
+- **`ferr-cert`**: Engine for standalone portable integrity certificates.
+- **`ferr-report`** / **`ferr-verify`**: JSON/ALE generation and cold-storage scanning tools.
 - **`ferr-session`**: Bundled local SQLite `history.db` tracking deduplication.
 
 ---

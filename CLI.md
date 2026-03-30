@@ -168,6 +168,9 @@ ferr verify /Volumes/A001 /backup/day01
 ferr verify /backup/day01/ferr-manifest.json /backup/day01
 ```
 
+> [!TIP]
+> La vérification est désormais native (en Rust) et ne nécessite pas de binaire externe.
+
 ---
 
 ### repair
@@ -198,7 +201,8 @@ ferr repair <MANIFEST> <DEST>
 ferr repair /backup/day01/ferr-manifest.json /backup/day01
 ```
 
-> **Note :** PAR2 est actuellement en mode stub. La compilation FFI complète est prévue en phase 3.
+> [!TIP]
+> La réparation est désormais native (en Rust). Elle utilise un système de "vue virtuelle" (symlinks) pour gérer les fichiers de parité situés dans le dossier `_par2`.
 
 ---
 
@@ -532,7 +536,7 @@ Généré automatiquement dans chaque destination après une copie. Contient :
 
 ```json
 {
-  "ferr_version": "0.1.0",
+  "ferr_version": "0.2.0",
   "generated_at": "2025-06-15T14:23:00Z",
   "hostname": "dit-macbook",
   "source_path": "/Volumes/A001",
@@ -636,4 +640,4 @@ ferr history show 7
 
 ---
 
-*ferr v0.1.0 — MIT License*
+*ferr v0.2.0 — MIT License*
