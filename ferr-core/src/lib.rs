@@ -516,7 +516,7 @@ pub fn run_copy(
     let resume_manifest: Option<ferr_report::Manifest> = if job.resume {
         job.destinations
             .first()
-            .map(|d| d.join("ferr-manifest.json"))
+            .and_then(|d| find_manifest_path(d))
             .and_then(|p| ferr_report::load_manifest(&p).ok())
     } else {
         None
@@ -712,9 +712,13 @@ pub fn run_copy(
     let status = job_status_from_errors(errors, total_files);
     let hostname = get_hostname();
 
+    let now = chrono::Utc::now();
+    let generated_at = now.to_rfc3339();
+    let log_dir_name = format!("_ferr_logs_{}", now.format("%Y%m%d_%H%M%S"));
+
     let manifest = ferr_report::Manifest {
         ferr_version: env!("CARGO_PKG_VERSION").to_string(),
-        generated_at: chrono::Utc::now().to_rfc3339(),
+        generated_at,
         hostname,
         source_path: job.source.to_string_lossy().into_owned(),
         destinations: job
@@ -729,9 +733,11 @@ pub fn run_copy(
         files: file_entries,
     };
 
-    // Sauvegarder le manifest dans chaque destination (comportement noyau, pas un hook)
+    // Sauvegarder le manifest dans chaque destination
     for dest_path in &job.destinations {
-        let mp = dest_path.join("ferr-manifest.json");
+        let log_dir = dest_path.join(&log_dir_name);
+        std::fs::create_dir_all(&log_dir).ok();
+        let mp = log_dir.join("ferr-manifest.json");
         if let Err(e) = ferr_report::save_manifest(&manifest, &mp) {
             tracing::error!(path = %dest_path.display(), "manifest non sauvegardé : {e}");
         }
@@ -783,7 +789,7 @@ fn collect_recursive(dir: &Path, out: &mut Vec<PathBuf>) -> anyhow::Result<()> {
         let path = entry.path();
         if let Some(name) = path.file_name() {
             let n = name.to_string_lossy();
-            if n == "ferr-manifest.json" || n == "_par2" || n.ends_with(".pdf") {
+            if n == "ferr-manifest.json" || n == "_par2" || n.starts_with("_ferr_logs_") || n.ends_with(".pdf") {
                 continue;
             }
         }
@@ -1042,4 +1048,41 @@ pub fn generate_manifest(
         status,
         files: file_entries,
     })
+}
+
+// ---------------------------------------------------------------------------
+// Helpers pour la gestion du sous-dossier de logs
+// ---------------------------------------------------------------------------
+
+/// Retrouve le chemin du manifest de manière dynamique.
+/// Vérifie à la racine (ancienne version) puis cherche le _ferr_logs le plus récent.
+pub fn find_manifest_path(dest: &Path) -> Option<PathBuf> {
+    let root_manifest = dest.join("ferr-manifest.json");
+    if root_manifest.exists() {
+        return Some(root_manifest);
+    }
+
+    let mut log_dirs = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(dest) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                    if name.starts_with("_ferr_logs_") {
+                        log_dirs.push(path);
+                    }
+                }
+            }
+        }
+    }
+
+    // Le tri textuel suffit grâce au YYYYMMDD_HHMMSS
+    log_dirs.sort();
+    log_dirs.last().map(|d| d.join("ferr-manifest.json"))
+}
+
+pub fn get_log_dir_name(manifest: &ferr_report::Manifest) -> anyhow::Result<String> {
+    let dt = chrono::DateTime::parse_from_rfc3339(&manifest.generated_at)?
+        .with_timezone(&chrono::Utc);
+    Ok(format!("_ferr_logs_{}", dt.format("%Y%m%d_%H%M%S")))
 }

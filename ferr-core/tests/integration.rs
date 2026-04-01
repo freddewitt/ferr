@@ -79,7 +79,7 @@ fn copy_basic_creates_files_and_manifest() {
     }
 
     // Le manifest JSON est sauvegardé et rechargeable
-    let manifest_path = dst.join("ferr-manifest.json");
+    let manifest_path = ferr_core::find_manifest_path(&dst).unwrap();
     assert!(manifest_path.exists(), "ferr-manifest.json absent");
     let loaded = ferr_report::load_manifest(&manifest_path).unwrap();
     assert_eq!(loaded.total_files, manifest.total_files);
@@ -162,7 +162,7 @@ fn verify_ok_after_copy() {
     make_source(&src, 4, 2048);
 
     let manifest = ferr_core::run_copy(job(src.clone(), dst.clone()), |_| {}, &[]).unwrap();
-    let manifest_path = dst.join("ferr-manifest.json");
+    let manifest_path = ferr_core::find_manifest_path(&dst).unwrap();
 
     let hasher: Box<dyn ferr_hash::Hasher> = Box::new(ferr_hash::XxHasher);
     let report = ferr_verify::verify_manifest(&manifest, &dst, hasher.as_ref()).unwrap();
@@ -339,7 +339,7 @@ fn export_ale_produces_valid_file() {
     make_source(&src, 4, 512);
 
     let manifest = ferr_core::run_copy(job(src.clone(), dst.clone()), |_| {}, &[]).unwrap();
-    let manifest_path = dst.join("ferr-manifest.json");
+    let manifest_path = ferr_core::find_manifest_path(&dst).unwrap();
 
     let ale_path = dst.join("report.ale");
     ferr_report::export_ale(&manifest, &ale_path).unwrap();
@@ -413,7 +413,7 @@ fn pdf_report_is_non_empty() {
     make_source(&src, 5, 1024);
 
     let _manifest = ferr_core::run_copy(job(src.clone(), dst.clone()), |_| {}, &[]).unwrap();
-    let manifest_path = dst.join("ferr-manifest.json");
+    let manifest_path = ferr_core::find_manifest_path(&dst).unwrap();
     let loaded = ferr_report::load_manifest(&manifest_path).unwrap();
 
     let pdf_path = dst.join("report.pdf");
@@ -561,7 +561,7 @@ fn session_record_and_retrieve() {
     struct RecordHook;
     impl ferr_core::PostCopyHook for RecordHook {
         fn on_copy_done(&self, manifest: &ferr_report::Manifest) -> anyhow::Result<()> {
-            ferr_session::record_session(manifest)
+            ferr_session::record_session(manifest).map(|_| ())
         }
     }
     let hooks: Vec<ferr_core::HookRef> = vec![Arc::new(RecordHook)];

@@ -26,3 +26,6 @@ libc = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { workspace = true }
+
+[dev-dependencies]
+ferr-pdf = { path = "../ferr-pdf" }

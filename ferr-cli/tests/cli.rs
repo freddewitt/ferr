@@ -94,7 +94,7 @@ fn copy_basic() {
 
     // Le manifest JSON est généré
     assert!(
-        dst.join("ferr-manifest.json").exists(),
+        ferr_core::find_manifest_path(&dst).is_some(),
         "ferr-manifest.json absent"
     );
 
@@ -157,7 +157,7 @@ fn verify_ok_from_manifest() {
         .arg("--no-pdf")
         .arg("--quiet"));
 
-    let manifest = dst.join("ferr-manifest.json");
+    let manifest = ferr_core::find_manifest_path(&dst).unwrap();
     assert!(manifest.exists());
 
     let out = run(ferr().arg("verify").arg(&manifest).arg(&dst));
@@ -192,7 +192,7 @@ fn verify_detects_corruption() {
     data[0] ^= 0xFF;
     std::fs::write(&file, &data).unwrap();
 
-    let manifest = dst.join("ferr-manifest.json");
+    let manifest = ferr_core::find_manifest_path(&dst).unwrap();
     let out = run(ferr().arg("verify").arg(&manifest).arg(&dst));
     assert_ne!(
         out.status.code(),
@@ -222,7 +222,7 @@ fn scan_clean_returns_zero() {
         .arg("--no-pdf")
         .arg("--quiet"));
 
-    let manifest = dst.join("ferr-manifest.json");
+    let manifest = ferr_core::find_manifest_path(&dst).unwrap();
     let out = run(ferr()
         .arg("scan")
         .arg(&dst)
@@ -261,7 +261,7 @@ fn scan_detects_bitrot() {
     data[200] ^= 0xAB;
     std::fs::write(&file, &data).unwrap();
 
-    let manifest = dst.join("ferr-manifest.json");
+    let manifest = ferr_core::find_manifest_path(&dst).unwrap();
     let out = run(ferr()
         .arg("scan")
         .arg(&dst)
@@ -298,7 +298,7 @@ fn export_ale_creates_file() {
         .arg("--no-pdf")
         .arg("--quiet"));
 
-    let manifest = dst.join("ferr-manifest.json");
+    let manifest = ferr_core::find_manifest_path(&dst).unwrap();
     let ale = dst.join("export.ale");
 
     let out = run(ferr()
@@ -337,7 +337,7 @@ fn export_csv_creates_file() {
         .arg("--no-pdf")
         .arg("--quiet"));
 
-    let manifest = dst.join("ferr-manifest.json");
+    let manifest = ferr_core::find_manifest_path(&dst).unwrap();
     let csv = dst.join("export.csv");
 
     let out = run(ferr()
@@ -380,7 +380,7 @@ fn report_creates_pdf() {
         .arg("--no-pdf")
         .arg("--quiet"));
 
-    let manifest = dst.join("ferr-manifest.json");
+    let manifest = ferr_core::find_manifest_path(&dst).unwrap();
     let pdf = dst.join("test_report.pdf");
 
     let out = run(ferr()

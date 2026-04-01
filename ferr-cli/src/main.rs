@@ -338,12 +338,12 @@ fn run(cli: Cli) -> anyhow::Result<i32> {
 struct PdfHook;
 impl ferr_core::PostCopyHook for PdfHook {
     fn on_copy_done(&self, manifest: &ferr_report::Manifest) -> anyhow::Result<()> {
-        let pdf_name = format!(
-            "ferr_report_{}.pdf",
-            chrono::Utc::now().format("%Y%m%d_%H%M%S")
-        );
+        let log_dir_name = ferr_core::get_log_dir_name(manifest).unwrap_or_else(|_| "logs".into());
+        let pdf_name = "ferr_report.pdf";
         for dest_str in &manifest.destinations {
-            let pdf_path = PathBuf::from(dest_str).join(&pdf_name);
+            let log_dir = PathBuf::from(dest_str).join(&log_dir_name);
+            std::fs::create_dir_all(&log_dir).ok();
+            let pdf_path = log_dir.join(pdf_name);
             if let Err(e) = ferr_pdf::generate_report(manifest, &pdf_path) {
                 eprintln!("PDF non généré dans {dest_str} : {e}");
             }
@@ -351,6 +351,7 @@ impl ferr_core::PostCopyHook for PdfHook {
         Ok(())
     }
 }
+
 
 /// Enregistre la session dans la base SQLite locale.
 struct SessionHook;
@@ -709,7 +710,9 @@ fn cmd_scan(
     since: Option<String>,
     quiet: bool,
 ) -> anyhow::Result<i32> {
-    let manifest_path = manifest_path.unwrap_or_else(|| dest.join("ferr-manifest.json"));
+    let manifest_path = manifest_path.unwrap_or_else(|| {
+        ferr_core::find_manifest_path(&dest).unwrap_or_else(|| dest.join("ferr-manifest.json"))
+    });
 
     let manifest = ferr_report::load_manifest(&manifest_path)?;
     let hasher: Box<dyn ferr_hash::Hasher> = Box::new(ferr_hash::XxHasher);

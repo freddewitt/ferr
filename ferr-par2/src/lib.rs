@@ -117,12 +117,11 @@ fn collect_files_rec(dir: &Path, out: &mut Vec<PathBuf>) {
             continue;
         }
         if path.is_dir() {
-            // Ne pas descendre dans un dossier _par2 déjà créé
             let name = path
                 .file_name()
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_default();
-            if name == "_par2" {
+            if name == "_par2" || name.starts_with("_ferr_logs_") {
                 continue;
             }
             collect_files_rec(&path, out);
@@ -136,7 +135,7 @@ fn collect_files_rec(dir: &Path, out: &mut Vec<PathBuf>) {
                 .file_name()
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_default();
-            if ext == "par2" || name == "ferr-manifest.json" || ext == "pdf" {
+            if ext == "par2" || name == "ferr-manifest.json" || name.starts_with("_ferr_logs_") || ext == "pdf" {
                 continue;
             }
             out.push(path);
@@ -389,7 +388,8 @@ impl Par2View {
 
             if path.is_dir() {
                 // Éviter de boucler ou de descendre dans _par2 si on est à la racine
-                if path.file_name().is_some_and(|n| n == "_par2") {
+                let name = path.file_name().and_then(|n| n.to_str()).unwrap_or_default();
+                if name == "_par2" || name.starts_with("_ferr_logs_") {
                     continue;
                 }
                 std::fs::create_dir_all(&dest)?;

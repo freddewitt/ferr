@@ -1344,6 +1344,7 @@ dependencies = [
  "ferr-camera",
  "ferr-hash",
  "ferr-par2",
+ "ferr-pdf",
  "ferr-report",
  "ferr-session",
  "ferr-transfer",
