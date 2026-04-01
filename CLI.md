@@ -1,15 +1,15 @@
-# ferr — Référence CLI
+# ferr — CLI Reference
 
-**ferr** est un outil DIT (Digital Imaging Technician) pour la copie sécurisée de fichiers vidéo avec vérification hash, redondance PAR2 et journalisation.
+**ferr** is a specialized tool for Digital Imaging Technicians (DITs) and power users who require absolute data integrity and workflow automation.
 
 ---
 
-## Table des matières
+## Table of Contents
 
 1. [Installation](#installation)
-2. [Utilisation globale](#utilisation-globale)
-3. [Variables d'environnement](#variables-denvironnement)
-4. [Commandes](#commandes)
+2. [Global Usage](#global-usage)
+3. [Environment Variables](#environment-variables)
+4. [Commands](#commands)
    - [copy](#copy)
    - [verify](#verify)
    - [repair](#repair)
@@ -20,624 +20,165 @@
    - [profile](#profile)
    - [history](#history)
    - [cert](#cert)
-5. [Codes de sortie](#codes-de-sortie)
-6. [Formats de fichiers](#formats-de-fichiers)
-7. [Modèles de renommage](#modèles-de-renommage)
-8. [Profils](#profils)
-9. [Historique des sessions](#historique-des-sessions)
+5. [Exit Codes](#exit-codes)
+6. [Data Formats](#data-formats)
+7. [Renaming Templates](#renaming-templates)
+8. [Session History](#session-history)
 
 ---
 
 ## Installation
 
+To build the project from source, ensure you have Rust 1.75+ installed:
+
 ```sh
+git clone https://github.com/freddewitt/ferr
+cd ferr
 cargo build --release
-# Le binaire se trouve dans target/release/ferr
+# The binary is located at target/release/ferr
 ```
 
 ---
 
-## Utilisation globale
+## Global Usage
 
 ```
-ferr <COMMANDE> [OPTIONS]
+ferr <COMMAND> [OPTIONS]
 ```
 
-| Option | Description |
-|--------|-------------|
-| `--version` | Affiche la version |
-| `--help` | Affiche l'aide |
+| Global Option | Description |
+|---------------|-------------|
+| `--version`   | Displays the current version of ferr |
+| `--help`      | Displays detailed help for any command |
 
 ---
 
-## Variables d'environnement
+## Environment Variables
 
-| Variable | Effet |
+| Variable | Effect |
 |----------|-------|
-| `NO_COLOR` | Désactive toutes les couleurs dans la sortie (standard NO_COLOR) |
-| `FERR_DATA_DIR` | Répertoire de la base de données de sessions (par défaut `~/.local/share/ferr/` sur Unix, `%APPDATA%\ferr\` sur Windows) |
+| `NO_COLOR` | Disables ANSI colors in terminal output |
+| `FERR_DATA_DIR` | Custom path for the SQLite session database (Default: `~/.local/share/ferr/` on macOS/Linux) |
 
 ---
 
-## Commandes
+## Commands
 
-### copy
+### `copy`
 
-Copie des fichiers avec vérification hash, génération optionnelle de PAR2, PDF et notification.
+Executes a secure file transfer with on-the-fly hashing and optional redundancy.
 
-```
+```sh
 ferr copy <SRC> <DEST> [OPTIONS]
 ```
 
-**Arguments positionnels**
+#### Arguments
+- `SRC`: Source directory (e.g., camera card mount point)
+- `DEST`: Primary destination directory
 
-| Argument | Description |
-|----------|-------------|
-| `SRC` | Répertoire source (carte mémoire, SSD, etc.) |
-| `DEST` | Répertoire de destination principal |
+#### Options
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--dest2 <PATH>` | Path | — | Second destination for parallel mirror copy |
+| `--dest3 <PATH>` | Path | — | Third destination |
+| `--hash <ALGO>` | `xxhash` \| `sha256` | `xxhash` | Cryptographic hash algorithm |
+| `--par2 <PCT>` | 1–100 | — | Generate PAR2 redundancy files (N% overhead) |
+| `--resume` | flag | false | Resume a partial copy (skips verified files) |
+| `--camera` | flag | false | Enable heuristic camera format detection (BRAW, R3D, ARRI, etc.) |
+| `--rename <TEMPLATE>` | string | — | Dynamic renaming pattern (see [Renaming](#renaming-templates)) |
+| `--eject` | flag | false | Auto-eject source volume after successful transfer |
+| `--dedup` | flag | false | Skip files if their hash is already in the history |
+| `--profile <NAME>` | string | — | Load settings from a saved profile |
+| `--no-preserve-meta` | flag | false | Do not copy timestamps and extended attributes |
+| `--no-notify` | flag | false | Disable system desktop notifications |
+| `--no-pdf` | flag | false | Skip PDF report generation |
+| `--dry-run` | flag | false | Simulate the job without writing any files |
+| `--quiet` | flag | false | Hide progress bars for scripting/CI |
 
-**Options**
+#### Usage Scenarios
+- **DIT Mirroring**: Copy a 1TB RED card to two separate RAID drives with SHA-256 verification and 5% recovery data:
+  ```sh
+  ferr copy /Volumes/MAG_A /Volumes/RAID_1 --dest2 /Volumes/RAID_2 --hash sha256 --par2 5 --camera
+  ```
+- **Resume Transfer**: If a drive was accidentally unplugged, simply rerun the command with `--resume` to skip already copied files.
 
-| Option | Type | Défaut | Description |
-|--------|------|--------|-------------|
-| `--dest2 <PATH>` | Chemin | — | Deuxième destination (copie miroir simultanée) |
-| `--dest3 <PATH>` | Chemin | — | Troisième destination |
-| `--hash <ALGO>` | `xxhash` \| `sha256` | `xxhash` | Algorithme de hachage |
-| `--par2 <PCT>` | 1–100 | — | Génère des fichiers PAR2 avec N% de redondance |
-| `--resume` | flag | false | Reprend une copie interrompue (saute les fichiers déjà copiés et vérifiés) |
-| `--camera` | flag | false | Active la détection de format caméra (BRAW, R3D, ARRI MXF, Sony XOCN, Canon XF, ProRes) |
-| `--rename <TEMPLATE>` | Chaîne | — | Modèle de renommage (voir [Modèles de renommage](#modèles-de-renommage)) |
-| `--eject` | flag | false | Éjecte le volume source après une copie réussie |
-| `--dedup` | flag | false | Saute les fichiers dont le hash est déjà présent dans l'historique |
-| `--profile <NOM>` | Chaîne | — | Charge les options depuis un profil sauvegardé |
-| `--no-preserve-meta` | flag | false | Ne préserve pas les timestamps et xattrs |
-| `--no-notify` | flag | false | Désactive les notifications système |
-| `--no-pdf` | flag | false | Ne génère pas de rapport PDF |
-| `--dry-run` | flag | false | Simule la copie sans écrire aucun fichier |
-| `--quiet` | flag | false | Mode silencieux (pas de barres de progression) |
+---
 
-**Mode dry-run**
+### `verify`
 
-En mode `--dry-run`, ferr affiche :
-- Nombre de fichiers et taille totale
-- Espace PAR2 estimé
-- Durée estimée (base : 300 Mo/s)
-- Disponibilité de l'espace disque pour chaque destination
-- Nombre de clips détectés (si `--camera`)
-
-Aucun fichier n'est écrit.
-
-**Exemples**
+Verifies the integrity of a destination against a source or a manifest.
 
 ```sh
-# Copie simple avec hash xxhash
-ferr copy /Volumes/A001 /backup/day01
+ferr verify <SRC_OR_MANIFEST> <DEST> [--quiet]
+```
 
-# Copie miroir vers deux destinations avec SHA-256 et PAR2 10%
-ferr copy /Volumes/A001 /backup/ssd1 --dest2 /backup/ssd2 --hash sha256 --par2 10
+#### Scenarios
+- **Cold Storage Audit**: Verify a drive against its 1-year-old manifest:
+  ```sh
+  ferr verify /backup/day01/ferr-manifest.json /Volumes/OLD_DRIVE
+  ```
 
-# Copie avec mode caméra, renommage et éjection automatique
-ferr copy /Volumes/CARD /mnt/raid --camera --rename "{date}_{camera}_{reel}_{clip}{ext}" --eject
+---
 
-# Simulation avant copie réelle
-ferr copy /Volumes/A001 /backup --dry-run
+### `cert`
 
-# Copie avec profil
-ferr copy /Volumes/A001 /ignored --profile dailybackup
+Generates and manages **Portable Integrity Certificates** (`.ferrcert`). These are self-contained, signed PEM-like files used for cross-machine verification.
+
+#### `cert create`
+```sh
+ferr cert create <SRC> --output my_transfer.ferrcert
+```
+
+#### `cert verify`
+```sh
+ferr cert verify my_transfer.ferrcert /mnt/received_data
 ```
 
 ---
 
-### verify
+### `watch`
 
-Vérifie l'intégrité d'une copie en comparant source ou manifest avec destination.
-
-```
-ferr verify <SRC_OR_MANIFEST> <DEST> [OPTIONS]
-```
-
-**Arguments positionnels**
-
-| Argument | Description |
-|----------|-------------|
-| `SRC_OR_MANIFEST` | Répertoire source **ou** fichier manifest JSON (`.json`) |
-| `DEST` | Répertoire de destination à vérifier |
-
-**Options**
-
-| Option | Description |
-|--------|-------------|
-| `--quiet` | Mode silencieux |
-
-**Codes de sortie**
-
-| Code | Signification |
-|------|--------------|
-| 0 | Tout OK |
-| 1 | Fichiers manquants |
-| 2 | Fichiers corrompus |
-| 3 | Manquants et corrompus |
-
-**Exemples**
+Monitors a mount point (like `/Volumes`) and automatically starts copying as soon as a volume is detected.
 
 ```sh
-# Vérifier depuis la source
-ferr verify /Volumes/A001 /backup/day01
-
-# Vérifier depuis un manifest
-ferr verify /backup/day01/ferr-manifest.json /backup/day01
-```
-
-> [!TIP]
-> La vérification est désormais native (en Rust) et ne nécessite pas de binaire externe.
-
----
-
-### repair
-
-Tente de réparer les fichiers corrompus via les données PAR2.
-
-```
-ferr repair <MANIFEST> <DEST>
-```
-
-**Arguments positionnels**
-
-| Argument | Description |
-|----------|-------------|
-| `MANIFEST` | Fichier manifest JSON de la session |
-| `DEST` | Répertoire contenant les fichiers et les fichiers PAR2 |
-
-**Codes de sortie**
-
-| Code | Signification |
-|------|--------------|
-| 0 | Réparation réussie |
-| 3 | Irréparable ou PAR2 non disponible |
-
-**Exemple**
-
-```sh
-ferr repair /backup/day01/ferr-manifest.json /backup/day01
-```
-
-> [!TIP]
-> La réparation est désormais native (en Rust). Elle utilise un système de "vue virtuelle" (symlinks) pour gérer les fichiers de parité situés dans le dossier `_par2`.
-
----
-
-### scan
-
-Détecte le bit rot sur une destination en recomputant les hashs et en les comparant au manifest.
-
-```
-ferr scan <DEST> [OPTIONS]
-```
-
-**Arguments positionnels**
-
-| Argument | Description |
-|----------|-------------|
-| `DEST` | Répertoire à scanner |
-
-**Options**
-
-| Option | Type | Défaut | Description |
-|--------|------|--------|-------------|
-| `--manifest <PATH>` | Chemin | `<DEST>/ferr-manifest.json` | Manifest de référence |
-| `--since <DATE>` | RFC 3339 | — | Ignore les fichiers non modifiés depuis cette date |
-| `--quiet` | flag | false | Mode silencieux |
-
-**Codes de sortie**
-
-| Code | Signification |
-|------|--------------|
-| 0 | Aucun bit rot |
-| 1 | Bit rot détecté |
-
-**Exemple**
-
-```sh
-# Scan complet
-ferr scan /backup/day01
-
-# Scan incrémental (ignore les fichiers anciens)
-ferr scan /backup/day01 --since 2025-01-01T00:00:00Z
-
-# Scan avec manifest personnalisé
-ferr scan /backup/day01 --manifest /reports/ferr-manifest.json
+ferr watch /Volumes --dest /mnt/backup --camera --eject
 ```
 
 ---
 
-### watch
+### `scan`
 
-Surveille un point de montage et déclenche automatiquement une copie dès qu'un volume est détecté.
-
-```
-ferr watch <MOUNT_POINT> [OPTIONS]
-```
-
-**Arguments positionnels**
-
-| Argument | Description |
-|----------|-------------|
-| `MOUNT_POINT` | Répertoire à surveiller (ex. `/Volumes` ou `D:\`) |
-
-**Options**
-
-| Option | Type | Défaut | Description |
-|--------|------|--------|-------------|
-| `--dest <PATH>` | Chemin (répétable) | — | Destination(s) de copie |
-| `--hash <ALGO>` | `xxhash` \| `sha256` | `xxhash` | Algorithme de hachage |
-| `--par2 <PCT>` | 1–100 | — | Redondance PAR2 |
-| `--camera` | flag | false | Détection de format caméra |
-| `--profile <NOM>` | Chaîne | — | Charge les options depuis un profil |
-| `--delay <SEC>` | Entier | `3` | Délai (secondes) avant de démarrer la copie après détection |
-| `--eject` | flag | false | Éjecte le volume après copie |
-| `--quiet` | flag | false | Mode silencieux |
-
-**Exemples**
+Detects "Bit Rot" (silent data corruption) by re-hashing a drive and comparing it to its original manifest.
 
 ```sh
-# Mode DIT classique : surveille /Volumes, copie vers deux SSD
-ferr watch /Volumes --dest /mnt/ssd1 --dest /mnt/ssd2 --camera --eject
+# Scan everything and report mismatches
+ferr scan /Volumes/MyStorage
 
-# Avec profil
-ferr watch /Volumes --profile onset
+# Scan only files modified after a specific date
+ferr scan /Volumes/MyStorage --since 2025-01-01T00:00:00Z
 ```
 
 ---
 
-### export
+### `export` & `report`
 
-Exporte un manifest ferr vers un format de post-production.
-
-```
-ferr export <MANIFEST> --format <FORMAT> --output <OUTPUT>
-```
-
-**Arguments**
-
-| Argument | Description |
-|----------|-------------|
-| `MANIFEST` | Fichier manifest JSON |
-| `--format` | `ale` (Avid Log Exchange) ou `csv` |
-| `--output` | Fichier de sortie |
-
-**Exemples**
-
-```sh
-# Export ALE pour Avid
-ferr export ferr-manifest.json --format ale --output report.ale
-
-# Export CSV
-ferr export ferr-manifest.json --format csv --output report.csv
-```
-
-**Format ALE**
-
-Le fichier ALE généré contient les colonnes standard : `Name`, `Size`, `Hash`, `HashAlgo`, `Date`, `Status`.
-
-**Format CSV**
-
-Colonnes : `path`, `size`, `hash_algo`, `hash`, `modified_at`, `status`, `par2_generated`.
+- **Export**: Converts a session manifest to post-production formats (`ALE` for Avid or `CSV`).
+  ```sh
+  ferr export ferr-manifest.json --format ale --output daily_log.ale
+  ```
+- **Report**: Generates a professional PDF report with file-by-file verification status.
+  ```sh
+  ferr report ferr-manifest.json --output DIT_Report_Day01.pdf
+  ```
 
 ---
 
-### report
+## Session History
 
-Génère un rapport PDF depuis un manifest ferr.
-
-```
-ferr report <MANIFEST> [--output <PATH>]
-```
-
-**Arguments**
-
-| Argument | Type | Défaut | Description |
-|----------|------|--------|-------------|
-| `MANIFEST` | Chemin | — | Fichier manifest JSON |
-| `--output <PATH>` | Chemin | `<manifest>.pdf` | Chemin du PDF généré |
-
-**Contenu du rapport**
-
-- En-tête : version ferr, date de génération, nom d'hôte
-- Résumé : source, nombre de fichiers, taille totale, durée, statut global
-- Tableau paginé des fichiers copiés (chemin, taille, hash tronqué, statut)
-- Pied de page : hash du manifest (intégrité du rapport)
-
-**Exemple**
-
-```sh
-ferr report /backup/day01/ferr-manifest.json
-ferr report /backup/day01/ferr-manifest.json --output /reports/day01.pdf
-```
+Every successful transfer is recorded in a local SQLite database. This allows for:
+- **`history list`**: See recent jobs.
+- **`history find <HASH_OR_NAME>`**: Instantly locate where a specific clip was backed up across multiple drives.
 
 ---
 
-### profile
-
-Gère les profils de copie sauvegardés dans `~/.config/ferr/profiles/`.
-
-```
-ferr profile <SOUS-COMMANDE>
-```
-
-#### profile save
-
-Sauvegarde un profil avec les options de copie souhaitées.
-
-```
-ferr profile save <NOM> [OPTIONS]
-```
-
-| Option | Type | Description |
-|--------|------|-------------|
-| `--dest <PATH>` | Chemin (répétable) | Destinations |
-| `--hash <ALGO>` | `xxhash` \| `sha256` | Algorithme de hachage |
-| `--par2 <PCT>` | 1–100 | Redondance PAR2 |
-| `--camera` | flag | Mode caméra |
-| `--eject` | flag | Éjection automatique |
-
-```sh
-ferr profile save onset --dest /mnt/ssd1 --dest /mnt/ssd2 --hash sha256 --par2 10 --camera --eject
-```
-
-#### profile list
-
-Liste tous les profils sauvegardés.
-
-```sh
-ferr profile list
-```
-
-#### profile show
-
-Affiche le contenu JSON d'un profil.
-
-```sh
-ferr profile show onset
-```
-
-#### profile delete
-
-Supprime un profil.
-
-```sh
-ferr profile delete onset
-```
-
----
-
-### history
-
-Consulte l'historique des sessions de copie (base SQLite dans `~/.local/share/ferr/history.db`).
-
-```
-ferr history <SOUS-COMMANDE>
-```
-
-#### history list
-
-Liste les sessions récentes.
-
-```
-ferr history list [OPTIONS]
-```
-
-| Option | Type | Défaut | Description |
-|--------|------|--------|-------------|
-| `--limit <N>` | Entier | `20` | Nombre de sessions à afficher |
-| `--since <DATE>` | RFC 3339 | — | Filtre : sessions depuis cette date |
-
-```sh
-ferr history list
-ferr history list --limit 50 --since 2025-01-01T00:00:00Z
-```
-
-#### history show
-
-Affiche le détail JSON d'une session.
-
-```sh
-ferr history show 42
-```
-
-#### history find
-
-Recherche un fichier par hash ou nom.
-
-```
-ferr history find abcdef1234567890
-ferr history find A001_C001.braw
-```
-
----
-
-### cert
-
-Gère les certificats d'intégrité (`.ferrcert`). Un certificat est un manifeste encapsulé (format PEM) permettant à un tiers de vérifier l'intégrité d'un dossier sans accès à la base de données originale.
-
-```
-ferr cert <SOUS-COMMANDE>
-```
-
-#### cert create
-
-Crée un certificat pour un dossier ou un fichier.
-
-```
-ferr cert create <SRC> [OPTIONS]
-```
-
-| Option | Type | Défaut | Description |
-|--------|------|--------|-------------|
-| `--output <PATH>` | Chemin | `<SRC>.ferrcert` | Fichier de sortie |
-| `--hash <ALGO>` | `xxhash` \| `sha256` | `xxhash` | Algorithme de hachage |
-| `--quiet` | flag | false | Mode silencieux |
-
-**Exemple**
-
-```sh
-# Créer un certificat pour un dossier
-ferr cert create /Volumes/A001 --output A001.ferrcert
-```
-
-#### cert verify
-
-Vérifie un dossier contre un certificat reçu.
-
-```
-ferr cert verify <CERT> <DEST> [OPTIONS]
-```
-
-| Argument | Description |
-|----------|-------------|
-| `CERT` | Fichier certificat (`.ferrcert`) |
-| `DEST` | Répertoire de destination à vérifier |
-
-**Exemple**
-
-```sh
-# Vérifier l'intégrité d'un dossier reçu avec son certificat
-ferr cert verify A001.ferrcert /mnt/transfer/A001
-```
-
-**Format du certificat**
-
-Le fichier `.ferrcert` utilise un format texte inspiré du PEM, encapsulant un manifest JSON encodé en Base64 avec une signature d'intégrité interne :
-
-```text
------BEGIN FERR CERTIFICATE-----
-MIIEpAIBAAKCAQEA75...
-...
------END FERR CERTIFICATE-----
-```
-
----
-
-## Codes de sortie
-
-| Code | Signification |
-|------|--------------|
-| 0 | Succès |
-| 1 | Avertissement (manquants, bit rot détecté) |
-| 2 | Erreur fatale |
-| 3 | Irrécupérable (PAR2 insuffisant) |
-
----
-
-## Formats de fichiers
-
-### Manifest (`ferr-manifest.json`)
-
-Généré automatiquement dans chaque destination après une copie. Contient :
-
-```json
-{
-  "ferr_version": "0.2.0",
-  "generated_at": "2025-06-15T14:23:00Z",
-  "hostname": "dit-macbook",
-  "source_path": "/Volumes/A001",
-  "total_files": 24,
-  "total_size_bytes": 107374182400,
-  "duration_secs": 358.4,
-  "status": "Ok",
-  "files": [
-    {
-      "path": "A001_C001.braw",
-      "size": 4294967296,
-      "hash_algo": "xxhash64",
-      "hash": "a1b2c3d4e5f6g7h8",
-      "modified_at": "2025-06-15T09:15:00Z",
-      "status": "Ok",
-      "par2_generated": true
-    }
-  ]
-}
-```
-
-### Profil (`~/.config/ferr/profiles/<nom>.json`)
-
-```json
-{
-  "name": "onset",
-  "created_at": "2025-06-01T08:00:00Z",
-  "destinations": ["/mnt/ssd1", "/mnt/ssd2"],
-  "hash_algo": "sha256",
-  "par2_redundancy": 10,
-  "camera_mode": true,
-  "auto_eject": true
-}
-```
-
----
-
-## Modèles de renommage
-
-L'option `--rename` accepte un modèle avec les variables suivantes :
-
-| Variable | Description | Exemple |
-|----------|-------------|---------|
-| `{date}` | Date de modification (YYYYMMDD) | `20250615` |
-| `{camera}` | Identifiant caméra détecté | `A` |
-| `{reel}` | Numéro de bobine | `001` |
-| `{clip}` | Nom du clip sans extension | `A001_C001` |
-| `{ext}` | Extension avec point | `.braw` |
-| `{original}` | Nom de fichier original complet | `A001_C001.braw` |
-
-**Exemple**
-
-```sh
-ferr copy /Volumes/A001 /backup --rename "{date}_{camera}_{reel}_{clip}{ext}"
-# → 20250615_A_001_A001_C001.braw
-```
-
----
-
-## Profils
-
-Les profils permettent de mémoriser un ensemble d'options et de les réutiliser :
-
-```sh
-# Créer un profil "tournage" pour les jours de tournage
-ferr profile save tournage \
-  --dest /mnt/raid1 \
-  --dest /mnt/raid2 \
-  --hash sha256 \
-  --par2 10 \
-  --camera \
-  --eject
-
-# Utiliser le profil
-ferr copy /Volumes/CARD /ignored --profile tournage
-ferr watch /Volumes --profile tournage
-```
-
-Quand un profil est chargé, ses destinations et options remplacent celles de la ligne de commande (sauf `--rename` qui est toujours pris en compte).
-
----
-
-## Historique des sessions
-
-Chaque copie réussie est enregistrée dans une base SQLite locale. Cela permet :
-
-- **Déduplication** (`ferr copy --dedup`) : saute les fichiers dont le hash exact est déjà présent dans l'historique
-- **Audit** : retrouver quand et vers où un fichier a été copié
-- **Recherche** : retrouver un fichier par son hash ou son nom
-
-```sh
-# Activer la déduplication
-ferr copy /Volumes/A002 /backup --dedup
-
-# Trouver où un fichier a déjà été copié
-ferr history find A001_C001.braw
-
-# Voir le détail d'une session
-ferr history show 7
-```
-
----
-
-*ferr v0.2.0 — MIT License*
+*ferr v0.2.0 — Secure Data Management*

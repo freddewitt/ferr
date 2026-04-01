@@ -53,10 +53,8 @@ ferr copy /Volumes/CARD /mnt/ssd1 --dest2 /mnt/ssd2 --par2 5
 
 ## 🎖️ Feature Highlights
 
-### 1. Dedicated Integrity Certificates (`ferr cert`)
-> [!IMPORTANT]
-> **Yes, "ferrcert" is a core feature!**  
-> Portable certificates allow you to vouch for the integrity of a folder without sharing your entire session database.
+### 1. Portable Integrity Certificates (`ferr cert`)
+Portable certificates allow you to vouch for the integrity of a folder without sharing your entire session database. Useful for shipping drives to post-production labs or clients.
 
 - **Create**: `ferr cert create /MyData --output verification.ferrcert`
 - **Verify**: `ferr cert verify verification.ferrcert /ReceivedData`
@@ -91,12 +89,14 @@ ferr watch /Volumes --dest /mnt/backups --profile onset
 
 ---
 
-## 📖 Documentation & Help
+## 📖 Documentation & Reference
 
-For a complete list of commands and options, check the [CLI Reference](CLI.md) (disponible également en français).
+For a complete breakdown of every command, diagnostic flag, and real-world DIT automation scenario, please refer to the:
+
+👉 **[ferr CLI Reference Guide](CLI.md)**
 
 ```bash
-# Get context-specific help
+# Get context-specific help at any time
 ferr copy --help
 ferr cert --help
 ```
