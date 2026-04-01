@@ -1,3 +1,9 @@
+//! Historique des sessions de copie persisté en SQLite.
+//!
+//! Fournit [`record_session`] pour enregistrer un manifest dans la base locale,
+//! [`list_sessions`] pour interroger l'historique, et [`find_file_by_hash`]
+//! pour retrouver un fichier par son empreinte.
+
 use std::path::PathBuf;
 
 use rusqlite::{params, Connection};
@@ -9,6 +15,46 @@ pub type SessionId = i64;
 // Types publics
 // ---------------------------------------------------------------------------
 
+/// Statut d'une session de copie enregistrée en base.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub enum SessionStatus {
+    Ok,
+    Partial,
+    Failed,
+    Unknown,
+}
+
+impl SessionStatus {
+    fn to_db_str(&self) -> &'static str {
+        match self {
+            Self::Ok => "Ok",
+            Self::Partial => "Partial",
+            Self::Failed => "Failed",
+            Self::Unknown => "Unknown",
+        }
+    }
+
+    fn from_db_str(s: &str) -> Self {
+        match s {
+            "Ok" => Self::Ok,
+            "Partial" => Self::Partial,
+            "Failed" => Self::Failed,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+impl From<&ferr_report::JobStatus> for SessionStatus {
+    fn from(s: &ferr_report::JobStatus) -> Self {
+        match s {
+            ferr_report::JobStatus::Ok => Self::Ok,
+            ferr_report::JobStatus::Partial => Self::Partial,
+            ferr_report::JobStatus::Failed => Self::Failed,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Session {
     pub id: SessionId,
@@ -18,7 +64,7 @@ pub struct Session {
     pub total_files: usize,
     pub total_bytes: u64,
     pub duration_secs: f64,
-    pub status: String,
+    pub status: SessionStatus,
     pub manifest_path: Option<String>,
     pub hash_algo: String,
 }
@@ -128,8 +174,8 @@ fn init_schema(conn: &Connection) -> anyhow::Result<()> {
 
 pub fn record_session(manifest: &ferr_report::Manifest) -> anyhow::Result<SessionId> {
     let conn = open_db()?;
-    let destinations_json = serde_json::to_string(&manifest.source_path)?;
-    let status = format!("{:?}", manifest.status);
+    let destinations_json = serde_json::to_string(&manifest.destinations)?;
+    let status = SessionStatus::from(&manifest.status).to_db_str();
 
     conn.execute(
         "INSERT INTO sessions
@@ -249,7 +295,10 @@ pub fn find_file_by_hash(hash: &str) -> anyhow::Result<Vec<FileRecord>> {
     Ok(records?)
 }
 
-pub fn find_sessions_by_source(source: &str) -> anyhow::Result<Vec<Session>> {
+/// Recherche les sessions pour une source donnée.
+/// Réservé à l'usage interne et aux tests.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn find_sessions_by_source(source: &str) -> anyhow::Result<Vec<Session>> {
     list_sessions(SessionFilter {
         source: Some(source.to_string()),
         ..Default::default()
@@ -260,6 +309,7 @@ fn row_to_session(row: &rusqlite::Row<'_>) -> rusqlite::Result<Session> {
     let dests_json: String = row.get(3)?;
     let destinations: Vec<String> =
         serde_json::from_str(&dests_json).unwrap_or_else(|_| vec![dests_json.clone()]);
+    let status_str: String = row.get(7)?;
     Ok(Session {
         id: row.get(0)?,
         date: row.get(1)?,
@@ -268,7 +318,7 @@ fn row_to_session(row: &rusqlite::Row<'_>) -> rusqlite::Result<Session> {
         total_files: row.get::<_, i64>(4)? as usize,
         total_bytes: row.get::<_, i64>(5)? as u64,
         duration_secs: row.get(6)?,
-        status: row.get(7)?,
+        status: SessionStatus::from_db_str(&status_str),
         manifest_path: row.get(8)?,
         hash_algo: row.get(9)?,
     })
@@ -288,6 +338,7 @@ mod tests {
             generated_at: "2025-01-01T00:00:00Z".into(),
             hostname: "host".into(),
             source_path: "/footage/A001".into(),
+            destinations: Vec::new(),
             total_files: 1,
             total_size_bytes: 1024,
             duration_secs: 0.5,
@@ -304,49 +355,61 @@ mod tests {
         }
     }
 
-    fn set_test_db() {
-        // Forcer un DB temporaire pour les tests
-        let tmp = std::env::temp_dir().join(format!("ferr_session_test_{}.db", std::process::id()));
-        std::env::set_var("FERR_DATA_DIR", tmp.parent().unwrap());
+    use std::sync::Mutex;
+
+    static TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    fn with_test_db<F: FnOnce()>(f: F) {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let tmp_dir = std::env::temp_dir()
+            .join(format!("ferr_session_{}", std::process::id()));
+        std::fs::create_dir_all(&tmp_dir).unwrap();
+        // SAFETY: protégé par TEST_LOCK — un seul test à la fois modifie l'env
+        unsafe { std::env::set_var("FERR_DATA_DIR", &tmp_dir); }
+        f();
     }
 
     #[test]
     fn record_and_list() {
-        set_test_db();
-        let manifest = test_manifest();
-        let id = record_session(&manifest).unwrap();
-        assert!(id > 0);
+        with_test_db(|| {
+            let manifest = test_manifest();
+            let id = record_session(&manifest).unwrap();
+            assert!(id > 0);
 
-        let sessions = list_sessions(SessionFilter::default()).unwrap();
-        assert!(!sessions.is_empty());
-        let found = sessions.iter().any(|s| s.id == id);
-        assert!(found);
+            let sessions = list_sessions(SessionFilter::default()).unwrap();
+            assert!(!sessions.is_empty());
+            let found = sessions.iter().any(|s| s.id == id);
+            assert!(found);
+        });
     }
 
     #[test]
     fn find_file_by_hash_works() {
-        set_test_db();
-        let manifest = test_manifest();
-        record_session(&manifest).unwrap();
-        let records = find_file_by_hash("abcdef1234567890").unwrap();
-        assert!(!records.is_empty());
-        assert_eq!(records[0].hash, "abcdef1234567890");
+        with_test_db(|| {
+            let manifest = test_manifest();
+            record_session(&manifest).unwrap();
+            let records = find_file_by_hash("abcdef1234567890").unwrap();
+            assert!(!records.is_empty());
+            assert_eq!(records[0].hash, "abcdef1234567890");
+        });
     }
 
     #[test]
     fn get_session_returns_none_for_unknown() {
-        set_test_db();
-        let _ = init_db();
-        let result = get_session(999999).unwrap();
-        assert!(result.is_none());
+        with_test_db(|| {
+            let _ = init_db();
+            let result = get_session(999999).unwrap();
+            assert!(result.is_none());
+        });
     }
 
     #[test]
     fn find_by_source() {
-        set_test_db();
-        let manifest = test_manifest();
-        record_session(&manifest).unwrap();
-        let sessions = find_sessions_by_source("/footage/A001").unwrap();
-        assert!(!sessions.is_empty());
+        with_test_db(|| {
+            let manifest = test_manifest();
+            record_session(&manifest).unwrap();
+            let sessions = find_sessions_by_source("/footage/A001").unwrap();
+            assert!(!sessions.is_empty());
+        });
     }
 }

@@ -4,10 +4,15 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-#[cfg(unix)]
-use std::os::unix::fs::symlink;
-#[cfg(windows)]
-use std::os::windows::fs::symlink_file as symlink;
+
+/// Crée un lien dur (hard link) vers `src` à l'emplacement `dest`.
+/// Si le hard link échoue (systèmes de fichiers différents, droits
+/// insuffisants), replie sur une copie du fichier.
+fn link_or_copy(src: &Path, dest: &Path) -> std::io::Result<()> {
+    std::fs::hard_link(src, dest).or_else(|_| {
+        std::fs::copy(src, dest).map(|_| ())
+    })
+}
 
 // ---------------------------------------------------------------------------
 // Types publics
@@ -149,7 +154,7 @@ fn collect_files_rec(dir: &Path, out: &mut Vec<PathBuf>) {
 /// (par2 utilise '\r' pour les mises à jour de progression sur terminal).
 fn split_par2_output(raw: &[u8]) -> Vec<String> {
     String::from_utf8_lossy(raw)
-        .split(|c: char| c == '\n' || c == '\r')
+        .split(['\n', '\r'])
         .filter(|s| !s.trim().is_empty())
         .map(|s| s.to_string())
         .collect()
@@ -331,7 +336,7 @@ pub fn repair(
             Ok(Par2RepairStatus::Repaired)
         }
         Err(e) => {
-            eprintln!("Erreur de réparation native : {:?}", e);
+            tracing::error!("erreur de réparation native : {:?}", e);
             Ok(Par2RepairStatus::Failed)
         }
     }
@@ -364,11 +369,11 @@ impl Par2View {
             for entry in std::fs::read_dir(par2_dir)? {
                 let entry = entry?;
                 let path = entry.path();
-                if path.extension().map_or(false, |e| e == "par2") {
+                if path.extension().is_some_and(|e| e == "par2") {
                     let name = entry.file_name();
                     let dest = view_path.join(&name);
                     if !dest.exists() {
-                        let _ = symlink(path, dest);
+                        let _ = link_or_copy(&path, &dest);
                     }
                 }
             }
@@ -386,16 +391,16 @@ impl Par2View {
 
             if path.is_dir() {
                 // Éviter de boucler ou de descendre dans _par2 si on est à la racine
-                if path.file_name().map_or(false, |n| n == "_par2") {
+                if path.file_name().is_some_and(|n| n == "_par2") {
                     continue;
                 }
                 std::fs::create_dir_all(&dest)?;
                 Self::link_dir_rec(&path, view_root, target_root)?;
             } else if path.is_file() {
                 // Ne pas symlinker les fichiers qu'on veut ignorer (le pdf de rapport, etc)
-                // si on veut être strict, mais ici on peut tout symlinker, rust_par2
+                // si on veut être strict, mais ici on peut tout lier, rust_par2
                 // ne s'intéressera qu'à ce qu'il connaît.
-                let _ = symlink(path, dest);
+                let _ = link_or_copy(&path, &dest);
             }
         }
         Ok(())

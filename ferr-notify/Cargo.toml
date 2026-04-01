@@ -7,3 +7,4 @@ license = "MIT"
 [dependencies]
 notify-rust = { workspace = true }
 anyhow      = { workspace = true }
+tracing     = { workspace = true }

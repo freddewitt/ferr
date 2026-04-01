@@ -1,3 +1,8 @@
+//! Structures de données du rapport de copie ferr (manifest).
+//!
+//! Définit [`Manifest`], [`FileEntry`], [`JobStatus`] et [`FileStatus`],
+//! ainsi que la sérialisation JSON et les exports ALE/CSV.
+
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
@@ -42,6 +47,8 @@ pub struct Manifest {
     pub generated_at: String,
     pub hostname: String,
     pub source_path: String,
+    #[serde(default)]
+    pub destinations: Vec<String>,
     pub total_files: usize,
     pub total_size_bytes: u64,
     pub duration_secs: f64,
@@ -52,6 +59,22 @@ pub struct Manifest {
 // ---------------------------------------------------------------------------
 // Fonctions publiques
 // ---------------------------------------------------------------------------
+
+/// Formate une taille en octets en chaîne lisible (Go, Mo, Ko, o).
+pub fn human_size(bytes: u64) -> String {
+    const GB: u64 = 1_000_000_000;
+    const MB: u64 = 1_000_000;
+    const KB: u64 = 1_000;
+    if bytes >= GB {
+        format!("{:.2} Go", bytes as f64 / GB as f64)
+    } else if bytes >= MB {
+        format!("{:.1} Mo", bytes as f64 / MB as f64)
+    } else if bytes >= KB {
+        format!("{:.0} Ko", bytes as f64 / KB as f64)
+    } else {
+        format!("{bytes} o")
+    }
+}
 
 pub fn save_manifest(m: &Manifest, path: &Path) -> anyhow::Result<()> {
     if let Some(parent) = path.parent() {
@@ -82,6 +105,7 @@ mod tests {
             generated_at: "2025-01-01T00:00:00Z".into(),
             hostname: "test-host".into(),
             source_path: "/source".into(),
+            destinations: vec!["/src".to_string()],
             total_files: 2,
             total_size_bytes: 1024,
             duration_secs: 1.5,
@@ -262,6 +286,7 @@ mod export_tests {
             generated_at: "2025-01-01T00:00:00Z".into(),
             hostname: "host".into(),
             source_path: "/src".into(),
+            destinations: Vec::new(),
             total_files: 1,
             total_size_bytes: 100,
             duration_secs: 1.0,

@@ -6,8 +6,8 @@ license = "MIT"
 
 [dependencies]
 rayon         = { workspace = true }
+tracing       = { workspace = true }
 chrono        = { workspace = true }
-hostname      = { workspace = true }
 serde         = { workspace = true }
 serde_json    = { workspace = true }
 thiserror     = { workspace = true }
@@ -19,9 +19,7 @@ ferr-transfer = { path = "../ferr-transfer" }
 ferr-verify   = { path = "../ferr-verify" }
 ferr-par2     = { path = "../ferr-par2" }
 ferr-camera   = { path = "../ferr-camera" }
-ferr-session  = { path = "../ferr-session" }
-ferr-notify   = { path = "../ferr-notify" }
-ferr-pdf      = { path = "../ferr-pdf" }
+ferr-session  = { path = "../ferr-session" }   # lecture seule : find_file_by_hash (déduplication)
 
 [target.'cfg(unix)'.dependencies]
 libc = { workspace = true }

@@ -21,7 +21,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-latest, macos-latest, macos-13, windows-latest]
 
     steps:
       - name: Checkout
@@ -50,6 +50,10 @@ jobs:
 
       - name: Install par2cmdline (macOS)
         if: matrix.os == 'macos-latest'
+        run: brew install par2
+
+      - name: Install par2cmdline (macOS 13)
+        if: matrix.os == 'macos-13'
         run: brew install par2
 
       - name: Install par2cmdline (Windows)
@@ -84,6 +88,20 @@ jobs:
       - run: cargo fmt --all -- --check
 
   # ─────────────────────────────────────────────────────────────────
+  # Audit des dépendances (RUSTSEC)
+  # ─────────────────────────────────────────────────────────────────
+  audit:
+    name: Cargo Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+      - name: Audit
+        run: cargo audit
+
+  # ─────────────────────────────────────────────────────────────────
   # Release — déclenché sur tag v*
   # Construit les binaires sur chaque OS, les empaquette et les publie
   # ─────────────────────────────────────────────────────────────────
@@ -91,7 +109,7 @@ jobs:
     name: Release (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [test, fmt]
+    needs: [test, fmt, audit]
     permissions:
       contents: write
     strategy:
@@ -105,6 +123,10 @@ jobs:
             target: aarch64-apple-darwin
             binary: ferr
             archive: ferr-macos-aarch64.tar.gz
+          - os: macos-13
+            target: x86_64-apple-darwin
+            binary: ferr
+            archive: ferr-macos-x86_64.tar.gz
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             binary: ferr.exe

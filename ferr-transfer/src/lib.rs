@@ -1,4 +1,8 @@
-use std::io::Read;
+//! Transfert de fichiers sécurisé avec vérification d'intégrité.
+//!
+//! Ce module implémente la copie streaming vers plusieurs destinations simultanément,
+//! avec vérification hash post-écriture et retry automatique en cas d'échec.
+
 use std::path::{Path, PathBuf};
 
 use rayon::prelude::*;
@@ -7,8 +11,11 @@ use rayon::prelude::*;
 // Trait Destination
 // ---------------------------------------------------------------------------
 
+/// Abstraction d'une destination de copie.
 pub trait Destination: Send + Sync {
-    fn write_file(&self, rel_path: &Path, data: &[u8]) -> anyhow::Result<()>;
+    /// Copie le fichier source `src` vers cette destination sous le chemin relatif `rel_path`.
+    /// L'écriture est atomique (fichier temporaire puis renommage).
+    fn write_file(&self, rel_path: &Path, src: &Path) -> anyhow::Result<()>;
     fn sync(&self) -> anyhow::Result<()>;
     fn root(&self) -> &Path;
 }
@@ -17,19 +24,28 @@ pub trait Destination: Send + Sync {
 // LocalDest
 // ---------------------------------------------------------------------------
 
+/// Destination sur le système de fichiers local.
 pub struct LocalDest {
-    pub root: PathBuf,
+    pub(crate) root: PathBuf,
+}
+
+impl LocalDest {
+    /// Crée une nouvelle destination locale pointant vers `root`.
+    pub fn new(root: PathBuf) -> Self {
+        Self { root }
+    }
 }
 
 impl Destination for LocalDest {
-    fn write_file(&self, rel_path: &Path, data: &[u8]) -> anyhow::Result<()> {
+    /// Copie `src` vers `root/rel_path` via streaming (aucun tampon mémoire complet).
+    fn write_file(&self, rel_path: &Path, src: &Path) -> anyhow::Result<()> {
         let dest = self.root.join(rel_path);
         if let Some(parent) = dest.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        // Écriture atomique : fichier temporaire puis renommage
+        // Écriture atomique : copie vers fichier temporaire, puis renommage
         let tmp = dest.with_extension("ferr_tmp");
-        std::fs::write(&tmp, data)?;
+        std::fs::copy(src, &tmp)?;
         std::fs::rename(&tmp, &dest)?;
         Ok(())
     }
@@ -74,45 +90,15 @@ fn sync_file(path: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-// Wrapper platform-spécifique (présent pour extensibilité future)
-#[cfg(unix)]
-#[allow(dead_code)]
-fn fsync_fd(path: &Path) -> anyhow::Result<()> {
-    use std::os::unix::io::AsRawFd;
-    let file = std::fs::OpenOptions::new().write(true).open(path)?;
-    let ret = unsafe { libc::fsync(file.as_raw_fd()) };
-    if ret != 0 {
-        return Err(std::io::Error::last_os_error().into());
-    }
-    Ok(())
-}
-
-#[cfg(windows)]
-#[allow(dead_code)]
-fn fsync_fd(path: &Path) -> anyhow::Result<()> {
-    use std::os::windows::io::AsRawHandle;
-    use windows_sys::Win32::Storage::FileSystem::FlushFileBuffers;
-    let file = std::fs::OpenOptions::new().write(true).open(path)?;
-    let ok = unsafe { FlushFileBuffers(file.as_raw_handle() as _) };
-    if ok == 0 {
-        return Err(std::io::Error::last_os_error().into());
-    }
-    Ok(())
-}
-
 // ---------------------------------------------------------------------------
 // copy_file
 // ---------------------------------------------------------------------------
 
-const CHUNK_SIZE: usize = 8 * 1024 * 1024; // 8 MiB
-
-/// Copie `src` vers toutes les destinations.
+/// Copie `src` vers toutes les destinations en mode streaming (pas de tampon mémoire complet).
 ///
 /// - `rel_path` : chemin relatif utilisé pour `Destination::write_file`
-///   (typiquement `src.strip_prefix(source_root)`)
-/// - `resume_manifest` : si fourni et que le fichier est déjà présent avec
-///   le bon hash, la copie est ignorée (skip)
-/// - `on_progress` : callback appelé avec le nombre d'octets lus jusqu'ici
+/// - `resume_manifest` : si fourni et que le fichier est déjà OK, la copie est ignorée
+/// - `on_progress` : appelé avec le nombre d'octets lus depuis la source
 pub fn copy_file(
     src: &Path,
     rel_path: &Path,
@@ -122,7 +108,7 @@ pub fn copy_file(
     on_progress: impl Fn(u64),
     preserve_metadata: bool,
 ) -> anyhow::Result<TransferResult> {
-    // --- Vérification reprise -------------------------------------------------
+    // --- Vérification reprise ------------------------------------------------
     if let Some(manifest) = resume_manifest {
         let rel_str = rel_path.to_string_lossy();
         if let Some(entry) = manifest.files.iter().find(|e| e.path == rel_str.as_ref()) {
@@ -154,32 +140,16 @@ pub fn copy_file(
         }
     }
 
-    // --- Lecture source en chunks ---------------------------------------------
-    let mut file = std::fs::File::open(src)?;
-    let mut data: Vec<u8> = Vec::new();
-    let mut buf = vec![0u8; CHUNK_SIZE];
-    let mut total_read = 0u64;
+    // --- Hash source en streaming (aucun tampon complet en RAM) --------------
+    let src_hash = hasher.hash_file(src)?;
+    on_progress(src_hash.bytes_read);
 
-    loop {
-        let n = file.read(&mut buf)?;
-        if n == 0 {
-            break;
-        }
-        data.extend_from_slice(&buf[..n]);
-        total_read += n as u64;
-        on_progress(total_read);
-    }
-
-    // --- Hash source ----------------------------------------------------------
-    let src_hash = {
-        let mut cursor = std::io::Cursor::new(&data);
-        hasher.hash_reader(&mut cursor)?
-    };
-
-    // --- Écriture parallèle sur toutes les destinations ----------------------
+    // --- Écriture parallèle + vérification sur toutes les destinations -------
     let results: Vec<DestResult> = destinations
         .par_iter()
-        .map(|dest| write_verify_retry(dest.as_ref(), rel_path, &data, hasher))
+        .map(|dest| {
+            write_verify_retry(dest.as_ref(), rel_path, src, &src_hash.hex, hasher)
+        })
         .collect();
 
     // --- Préservation des métadonnées ----------------------------------------
@@ -189,9 +159,9 @@ pub fn copy_file(
         for dest in destinations {
             let dest_path = dest.root().join(rel_path);
             if let Err(e) = copy_metadata(src, &src_meta, &dest_path) {
-                eprintln!(
-                    "Avertissement : métadonnées non préservées sur {} : {e}",
-                    dest_path.display()
+                tracing::warn!(
+                    path = %dest_path.display(),
+                    "métadonnées non préservées : {e}"
                 );
                 all_ok = false;
             }
@@ -209,16 +179,21 @@ pub fn copy_file(
     })
 }
 
-/// Écrit, sync, vérifie le hash. Si incorrect → retry une fois.
+// ---------------------------------------------------------------------------
+// Helpers internes
+// ---------------------------------------------------------------------------
+
+/// Écrit `src` vers `dest`, vérifie le hash, retry une fois en cas d'échec.
 fn write_verify_retry(
     dest: &dyn Destination,
     rel_path: &Path,
-    data: &[u8],
+    src: &Path,
+    expected_hex: &str,
     hasher: &dyn ferr_hash::Hasher,
 ) -> DestResult {
     let dest_path = dest.root().join(rel_path);
 
-    match attempt_write_verify(dest, rel_path, &dest_path, data, hasher) {
+    match attempt_write_verify(dest, rel_path, &dest_path, src, expected_hex, hasher) {
         Ok(()) => DestResult {
             path: dest_path,
             success: true,
@@ -227,7 +202,7 @@ fn write_verify_retry(
         },
         Err(first_err) => {
             // Retry unique
-            match attempt_write_verify(dest, rel_path, &dest_path, data, hasher) {
+            match attempt_write_verify(dest, rel_path, &dest_path, src, expected_hex, hasher) {
                 Ok(()) => DestResult {
                     path: dest_path,
                     success: true,
@@ -245,32 +220,26 @@ fn write_verify_retry(
     }
 }
 
+/// Écrit le fichier source vers la destination et vérifie l'intégrité par rehash.
+/// Le hash source `expected_hex` est calculé une seule fois en amont (pas de double-hash).
 fn attempt_write_verify(
     dest: &dyn Destination,
     rel_path: &Path,
     dest_path: &Path,
-    data: &[u8],
+    src: &Path,
+    expected_hex: &str,
     hasher: &dyn ferr_hash::Hasher,
 ) -> anyhow::Result<()> {
-    dest.write_file(rel_path, data)?;
+    dest.write_file(rel_path, src)?;
     sync_file(dest_path)?;
 
-    // Vérification par relecture
-    let read_back = std::fs::read(dest_path)?;
-    let dest_hash = {
-        let mut cursor = std::io::Cursor::new(&read_back);
-        hasher.hash_reader(&mut cursor)?
-    };
-    let src_hash = {
-        let mut cursor = std::io::Cursor::new(data);
-        hasher.hash_reader(&mut cursor)?
-    };
-
-    if dest_hash.hex != src_hash.hex {
+    // Vérification par relecture streaming (pas de tampon complet en RAM)
+    let dest_hash = hasher.hash_file(dest_path)?;
+    if dest_hash.hex != expected_hex {
         anyhow::bail!(
             "Hash mismatch sur {} : attendu {} obtenu {}",
             dest_path.display(),
-            src_hash.hex,
+            expected_hex,
             dest_hash.hex
         );
     }
@@ -281,7 +250,7 @@ fn attempt_write_verify(
 // Préservation des métadonnées
 // ---------------------------------------------------------------------------
 
-/// Copie les timestamps (mtime, atime) et les xattrs (macOS) de `src` vers `dest`.
+/// Copie les timestamps (mtime) et les xattrs (macOS) de `src` vers `dest`.
 fn copy_metadata(src: &Path, src_meta: &std::fs::Metadata, dest: &Path) -> anyhow::Result<()> {
     use filetime::FileTime;
 
@@ -328,9 +297,9 @@ mod tests {
         std::fs::create_dir_all(&dest_root).unwrap();
         std::fs::write(&src, b"hello ferr copy test").unwrap();
 
-        let destinations: Vec<Box<dyn Destination>> = vec![Box::new(LocalDest {
-            root: dest_root.clone(),
-        })];
+        let destinations: Vec<Box<dyn Destination>> = vec![Box::new(LocalDest::new(
+            dest_root.clone(),
+        ))];
         let hasher = XxHasher;
 
         let result = copy_file(
@@ -371,9 +340,9 @@ mod tests {
         let src_file = src_dir.join("day1").join("clip.mov");
         std::fs::write(&src_file, b"video data").unwrap();
 
-        let destinations: Vec<Box<dyn Destination>> = vec![Box::new(LocalDest {
-            root: dest_root.clone(),
-        })];
+        let destinations: Vec<Box<dyn Destination>> = vec![Box::new(LocalDest::new(
+            dest_root.clone(),
+        ))];
         let hasher = XxHasher;
 
         let result = copy_file(
@@ -411,6 +380,7 @@ mod tests {
             generated_at: "2025-01-01T00:00:00Z".into(),
             hostname: "host".into(),
             source_path: "/source".into(),
+            destinations: Vec::new(),
             total_files: 1,
             total_size_bytes: 7,
             duration_secs: 0.1,
@@ -426,9 +396,9 @@ mod tests {
             }],
         };
 
-        let destinations: Vec<Box<dyn Destination>> = vec![Box::new(LocalDest {
-            root: dest_root.clone(),
-        })];
+        let destinations: Vec<Box<dyn Destination>> = vec![Box::new(LocalDest::new(
+            dest_root.clone(),
+        ))];
 
         let result = copy_file(
             &src,
@@ -458,12 +428,8 @@ mod tests {
         std::fs::write(&src, b"multi destination data").unwrap();
 
         let destinations: Vec<Box<dyn Destination>> = vec![
-            Box::new(LocalDest {
-                root: dest1.clone(),
-            }),
-            Box::new(LocalDest {
-                root: dest2.clone(),
-            }),
+            Box::new(LocalDest::new(dest1.clone())),
+            Box::new(LocalDest::new(dest2.clone())),
         ];
         let hasher = XxHasher;
 

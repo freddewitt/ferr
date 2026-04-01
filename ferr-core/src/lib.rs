@@ -1,8 +1,46 @@
+//! Orchestrateur principal de copie sécurisée ferr.
+//!
+//! Fournit [`run_copy`] (copie avec hash, PAR2 et hooks post-copie injectables),
+//! [`dry_run`] (simulation sans écriture), [`run_watch`] (surveillance de
+//! volumes), ainsi que la gestion des profils et l'éjection automatique.
+//!
+//! Les actions post-copie (PDF, session, notification…) sont injectées via
+//! [`PostCopyHook`] pour permettre les tests unitaires sans effets de bord.
+
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
+use anyhow::Context as _;
+
 pub use ferr_camera::{CameraFormat, Clip};
 pub use ferr_hash::HashAlgo;
+
+// ---------------------------------------------------------------------------
+// Trait PostCopyHook — injection de dépendances post-copie (DIP)
+// ---------------------------------------------------------------------------
+
+/// Action exécutée après qu'un manifest a été finalisé.
+///
+/// Implémenter ce trait dans la couche appelante (ex. ferr-cli) pour
+/// brancher des effets de bord (PDF, SQLite, notification, éjection…)
+/// sans coupler ferr-core à ces crates.
+///
+/// # Exemple
+/// ```ignore
+/// struct LogHook;
+/// impl PostCopyHook for LogHook {
+///     fn on_copy_done(&self, m: &ferr_report::Manifest) -> anyhow::Result<()> {
+///         println!("Copie OK : {} fichiers", m.total_files);
+///         Ok(())
+///     }
+/// }
+/// ```
+pub trait PostCopyHook: Send + Sync {
+    fn on_copy_done(&self, manifest: &ferr_report::Manifest) -> anyhow::Result<()>;
+}
+
+/// Référence partagée à un hook post-copie (bon marché à cloner dans les threads).
+pub type HookRef = std::sync::Arc<dyn PostCopyHook>;
 
 // ---------------------------------------------------------------------------
 // Énumérations et structures publiques
@@ -38,11 +76,9 @@ pub struct CopyJob {
     pub preserve_metadata: bool,
     pub camera_mode: bool,
     pub rename_template: Option<String>,
+    /// Éjecter la source après copie réussie.
     pub auto_eject: bool,
     pub dedup: bool,
-    pub generate_pdf: bool,
-    pub send_notify: bool,
-    pub record_session: bool,
 }
 
 impl Default for CopyJob {
@@ -58,9 +94,6 @@ impl Default for CopyJob {
             rename_template: None,
             auto_eject: false,
             dedup: false,
-            generate_pdf: true,
-            send_notify: true,
-            record_session: true,
         }
     }
 }
@@ -191,23 +224,32 @@ pub fn eject_volume(mount_point: &Path) -> anyhow::Result<()> {
         if !status.success() {
             anyhow::bail!("diskutil eject a échoué sur {}", mount_point.display());
         }
-        return Ok(());
+        Ok(())
     }
 
     #[cfg(windows)]
     {
-        // Sur Windows : utiliser DeviceIoControl via PowerShell comme fallback simple
-        let drive = mount_point
-            .to_string_lossy()
-            .trim_end_matches('\\')
-            .to_string();
+        // Valider le chemin : doit être exactement "X:" ou "X:\" pour éviter toute injection
+        let mount_str = mount_point.to_string_lossy();
+        let drive = mount_str.trim_end_matches(['\\', '/']);
+        if drive.len() != 2
+            || !drive.chars().next().map(|c| c.is_ascii_alphabetic()).unwrap_or(false)
+            || drive.chars().nth(1) != Some(':')
+        {
+            anyhow::bail!(
+                "Format de chemin d'éjection non supporté (attendu X:) : {}",
+                mount_point.display()
+            );
+        }
+        // Safe : `drive` est exactement une lettre + ':', aucun caractère d'injection possible
         let script = format!(
-            "(New-Object -comObject Shell.Application).Namespace(17).ParseName(\"{drive}\").InvokeVerb(\"Eject\")"
+            "$s = New-Object -comObject Shell.Application; $s.Namespace(17).ParseName('{}').InvokeVerb('Eject')",
+            drive
         );
         std::process::Command::new("powershell")
             .args(["-NoProfile", "-Command", &script])
             .status()?;
-        return Ok(());
+        Ok(())
     }
 
     #[cfg(not(any(target_os = "macos", windows)))]
@@ -274,21 +316,33 @@ pub fn dry_run(job: &CopyJob) -> anyhow::Result<DryRunReport> {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
 pub struct CopyJobTemplate {
     pub destinations: Vec<PathBuf>,
-    pub hash_algo_str: String,
+    pub hash_algo: HashAlgo,
     pub resume: bool,
     pub par2_redundancy: Option<u8>,
     pub camera_mode: bool,
     pub preserve_metadata: bool,
     pub rename_template: Option<String>,
-    pub auto_eject: bool,
 }
 
-#[derive(Clone)]
 pub struct WatchConfig {
     pub mount_point: PathBuf,
     pub copy_job: CopyJobTemplate,
     pub delay_secs: u64,
     pub auto_eject: bool,
+    /// Hooks post-copie injectés par l'appelant (ex. ferr-cli).
+    pub hooks: Vec<HookRef>,
+}
+
+impl Clone for WatchConfig {
+    fn clone(&self) -> Self {
+        Self {
+            mount_point: self.mount_point.clone(),
+            copy_job: self.copy_job.clone(),
+            delay_secs: self.delay_secs,
+            auto_eject: self.auto_eject,
+            hooks: self.hooks.clone(), // Arc::clone pour chaque hook — O(n) atomics
+        }
+    }
 }
 
 pub enum WatchEvent {
@@ -338,7 +392,7 @@ pub fn run_watch(
         let event = match result {
             Ok(e) => e,
             Err(e) => {
-                eprintln!("ferr watch : erreur de surveillance : {e}");
+                tracing::error!("erreur de surveillance : {e}");
                 continue;
             }
         };
@@ -371,10 +425,7 @@ pub fn run_watch(
                         volume: name.clone(),
                     });
 
-                    let hash_algo = match config_thread.copy_job.hash_algo_str.as_str() {
-                        "sha256" => HashAlgo::Sha256,
-                        _ => HashAlgo::XxHash64,
-                    };
+                    let hash_algo = config_thread.copy_job.hash_algo.clone();
 
                     let job = CopyJob {
                         source: event_path.clone(),
@@ -386,19 +437,20 @@ pub fn run_watch(
                         camera_mode: config_thread.copy_job.camera_mode,
                         rename_template: config_thread.copy_job.rename_template.clone(),
                         auto_eject: false,
-                        ..Default::default()
+                        dedup: false,
                     };
 
+                    let hooks_thread = config_thread.hooks.clone();
                     match run_copy(job, {
                         let on_evt = on_event_thread.clone();
                         move |p| on_evt(WatchEvent::CopyProgress(p))
-                    }) {
+                    }, &hooks_thread) {
                         Ok(manifest) => {
                             on_event_thread(WatchEvent::CopyDone {
                                 volume: name.clone(),
                                 manifest,
                             });
-                            if config_thread.auto_eject || config_thread.copy_job.auto_eject {
+                            if config_thread.auto_eject {
                                 match eject_volume(&event_path) {
                                     Ok(()) => on_event_thread(WatchEvent::Ejected { volume: name }),
                                     Err(e) => on_event_thread(WatchEvent::Error {
@@ -428,9 +480,15 @@ pub fn run_watch(
 // run_copy
 // ---------------------------------------------------------------------------
 
+/// Copie les fichiers de `job.source` vers toutes les destinations.
+///
+/// Les actions post-copie (PDF, enregistrement de session, notification…)
+/// sont déléguées aux `hooks` fournis par l'appelant. Passer `&[]` pour
+/// une copie sans effets de bord — utile en tests unitaires.
 pub fn run_copy(
     job: CopyJob,
     on_progress: impl Fn(CopyProgress) + Send,
+    hooks: &[HookRef],
 ) -> anyhow::Result<ferr_report::Manifest> {
     let start = Instant::now();
 
@@ -443,7 +501,7 @@ pub fn run_copy(
         .destinations
         .iter()
         .map(|p| -> Box<dyn ferr_transfer::Destination> {
-            Box::new(ferr_transfer::LocalDest { root: p.clone() })
+            Box::new(ferr_transfer::LocalDest::new(p.clone()))
         })
         .collect();
 
@@ -458,7 +516,8 @@ pub fn run_copy(
 
     // Vérification espace disque
     let space_checks =
-        check_space(&job.source, &job.destinations, job.par2_redundancy).unwrap_or_default();
+        check_space(&job.source, &job.destinations, job.par2_redundancy)
+            .context("Impossible de vérifier l'espace disque disponible")?;
     for check in &space_checks {
         if !check.ok {
             anyhow::bail!(
@@ -479,17 +538,7 @@ pub fn run_copy(
 
     for (idx, src_file) in src_files.iter().enumerate() {
         let rel = src_file.strip_prefix(&job.source)?;
-        let file_size = std::fs::metadata(src_file).map(|m| m.len()).unwrap_or(0);
-        let modified_at = std::fs::metadata(src_file)
-            .and_then(|m| m.modified())
-            .map(|t| {
-                let secs = t
-                    .duration_since(std::time::SystemTime::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs();
-                format_unix_time(secs)
-            })
-            .unwrap_or_else(|_| "unknown".to_string());
+        let (file_size, modified_at) = get_file_metadata(src_file);
 
         // Appliquer le renommage si template fourni
         let dest_rel = if let Some(tmpl) = &job.rename_template {
@@ -611,7 +660,7 @@ pub fn run_copy(
             }
             Err(e) => {
                 errors += 1;
-                eprintln!("Erreur sur {} : {e}", rel.display());
+                tracing::error!(path = %rel.display(), "erreur de copie : {e}");
                 file_entries.push(ferr_report::FileEntry {
                     path: dest_rel.to_string_lossy().replace('\\', "/"),
                     size: file_size,
@@ -646,30 +695,24 @@ pub fn run_copy(
                         e.par2_generated = true;
                     }
                 }
-                Err(e) => eprintln!("PAR2 non disponible : {e}"),
+                Err(e) => tracing::warn!("PAR2 non disponible : {e}"),
             }
         }
     }
 
     // --- Finalisation ---
     let duration_secs = start.elapsed().as_secs_f64();
-    let status = if errors == 0 {
-        ferr_report::JobStatus::Ok
-    } else if errors < total_files {
-        ferr_report::JobStatus::Partial
-    } else {
-        ferr_report::JobStatus::Failed
-    };
-
-    let hostname = hostname::get()
-        .map(|h| h.to_string_lossy().into_owned())
-        .unwrap_or_else(|_| "unknown".to_string());
+    let status = job_status_from_errors(errors, total_files);
+    let hostname = get_hostname();
 
     let manifest = ferr_report::Manifest {
         ferr_version: env!("CARGO_PKG_VERSION").to_string(),
         generated_at: chrono::Utc::now().to_rfc3339(),
         hostname,
         source_path: job.source.to_string_lossy().into_owned(),
+        destinations: job.destinations.iter()
+            .map(|p| p.to_string_lossy().into_owned())
+            .collect(),
         total_files,
         total_size_bytes,
         duration_secs,
@@ -677,51 +720,25 @@ pub fn run_copy(
         files: file_entries,
     };
 
-    // Sauvegarder le manifest dans chaque destination
+    // Sauvegarder le manifest dans chaque destination (comportement noyau, pas un hook)
     for dest_path in &job.destinations {
         let mp = dest_path.join("ferr-manifest.json");
         if let Err(e) = ferr_report::save_manifest(&manifest, &mp) {
-            eprintln!("Manifest non sauvegardé dans {} : {e}", dest_path.display());
+            tracing::error!(path = %dest_path.display(), "manifest non sauvegardé : {e}");
         }
     }
 
-    // Générer le PDF
-    if job.generate_pdf {
-        let pdf_name = format!(
-            "ferr_report_{}.pdf",
-            chrono::Utc::now().format("%Y%m%d_%H%M%S")
-        );
-        for dest_path in &job.destinations {
-            let pdf_path = dest_path.join(&pdf_name);
-            if let Err(e) = ferr_pdf::generate_report(&manifest, &pdf_path) {
-                eprintln!("PDF non généré : {e}");
-            }
+    // Exécuter les hooks post-copie injectés par l'appelant
+    for hook in hooks {
+        if let Err(e) = hook.on_copy_done(&manifest) {
+            tracing::error!("hook post-copie échoué : {e}");
         }
-    }
-
-    // Enregistrer la session
-    if job.record_session {
-        if let Err(e) = ferr_session::record_session(&manifest) {
-            eprintln!("Session non enregistrée : {e}");
-        }
-    }
-
-    // Notification
-    if job.send_notify {
-        let title = "ferr — Copie terminée";
-        let msg = format!(
-            "{} fichiers · {} · {:.1}s",
-            total_files,
-            human_size(total_size_bytes),
-            duration_secs
-        );
-        let _ = ferr_notify::notify_done(title, &msg, errors == 0);
     }
 
     // Éjection automatique
     if job.auto_eject && errors == 0 {
         if let Err(e) = eject_volume(&job.source) {
-            eprintln!("Éjection échouée : {e}");
+            tracing::warn!("éjection échouée : {e}");
         }
     }
 
@@ -784,12 +801,19 @@ fn dir_size(dir: &Path) -> anyhow::Result<u64> {
     Ok(total)
 }
 
+fn filesystem_root() -> PathBuf {
+    #[cfg(windows)]
+    { PathBuf::from("C:\\") }
+    #[cfg(not(windows))]
+    { PathBuf::from("/") }
+}
+
 fn find_existing_ancestor(path: &Path) -> PathBuf {
     let mut p = path.to_path_buf();
     while !p.exists() {
         match p.parent() {
             Some(parent) => p = parent.to_path_buf(),
-            None => return PathBuf::from("/"),
+            None => return filesystem_root(),
         }
     }
     p
@@ -800,6 +824,10 @@ fn available_space(path: &Path) -> anyhow::Result<u64> {
     use std::os::unix::ffi::OsStrExt;
     let c_path = std::ffi::CString::new(path.as_os_str().as_bytes())?;
     let mut stat: libc::statvfs = unsafe { std::mem::zeroed() };
+    // SAFETY: `c_path` est un `CString` valide issu d'un `OsStr` sans
+    // octet nul intérieur. `stat` est initialisé par `std::mem::zeroed()`
+    // qui est une valeur valide pour `libc::statvfs`. Le pointeur `&mut stat`
+    // est valide pour la durée de l'appel.
     let ret = unsafe { libc::statvfs(c_path.as_ptr(), &mut stat) };
     if ret != 0 {
         return Err(std::io::Error::last_os_error().into());
@@ -819,6 +847,11 @@ fn available_space(path: &Path) -> anyhow::Result<u64> {
     let mut available = 0u64;
     let mut total = 0u64;
     let mut free = 0u64;
+    // SAFETY: `wide` est un slice `Vec<u16>` terminé par un zéro,
+    // représentant un chemin Windows UTF-16 valide. Les pointeurs vers
+    // `available`, `total` et `free` sont des `u64` alignés et valides
+    // pour la durée de l'appel. La valeur de retour est vérifiée
+    // immédiatement après.
     let ok = unsafe {
         GetDiskFreeSpaceExW(
             wide.as_ptr(),
@@ -838,6 +871,58 @@ fn available_space(_path: &Path) -> anyhow::Result<u64> {
     Ok(u64::MAX) // plateforme non gérée : pas de blocage
 }
 
+/// Retourne le nom de la machine hôte sans dépendance externe.
+fn get_hostname() -> String {
+    #[cfg(unix)]
+    {
+        let mut buf = vec![0i8; 256];
+        // SAFETY: buf est un Vec<i8> de 256 éléments initialisés à zéro,
+        // valide pour la durée de l'appel à gethostname.
+        let ret = unsafe { libc::gethostname(buf.as_mut_ptr(), buf.len()) };
+        if ret == 0 {
+            let name: Vec<u8> = buf
+                .iter()
+                .take_while(|&&c| c != 0)
+                .map(|&c| c as u8)
+                .collect();
+            if let Ok(s) = String::from_utf8(name) {
+                return s;
+            }
+        }
+    }
+    std::env::var("COMPUTERNAME")
+        .or_else(|_| std::env::var("HOSTNAME"))
+        .unwrap_or_else(|_| "unknown".to_string())
+}
+
+/// Retourne (taille_octets, modified_at_iso8601) pour un fichier.
+fn get_file_metadata(path: &Path) -> (u64, String) {
+    let meta = std::fs::metadata(path);
+    let size = meta.as_ref().map(|m| m.len()).unwrap_or(0);
+    let modified_at = meta
+        .and_then(|m| m.modified())
+        .map(|t| {
+            let secs = t
+                .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+            format_unix_time(secs)
+        })
+        .unwrap_or_else(|_| "unknown".to_string());
+    (size, modified_at)
+}
+
+/// Détermine le statut global d'un job à partir du nombre d'erreurs.
+fn job_status_from_errors(errors: usize, total_files: usize) -> ferr_report::JobStatus {
+    if errors == 0 {
+        ferr_report::JobStatus::Ok
+    } else if errors < total_files {
+        ferr_report::JobStatus::Partial
+    } else {
+        ferr_report::JobStatus::Failed
+    }
+}
+
 fn speed_bytes_sec(bytes: u64, secs: f64) -> u64 {
     if secs < 0.001 {
         return 0;
@@ -846,25 +931,10 @@ fn speed_bytes_sec(bytes: u64, secs: f64) -> u64 {
 }
 
 fn format_unix_time(secs: u64) -> String {
-    let dt =
-        chrono::DateTime::from_timestamp(secs as i64, 0).unwrap_or_else(chrono::DateTime::default);
+    let dt = chrono::DateTime::from_timestamp(secs as i64, 0).unwrap_or_default();
     dt.format("%Y-%m-%dT%H:%M:%SZ").to_string()
 }
 
-fn human_size(bytes: u64) -> String {
-    const GB: u64 = 1_000_000_000;
-    const MB: u64 = 1_000_000;
-    const KB: u64 = 1_000;
-    if bytes >= GB {
-        format!("{:.2} Go", bytes as f64 / GB as f64)
-    } else if bytes >= MB {
-        format!("{:.1} Mo", bytes as f64 / MB as f64)
-    } else if bytes >= KB {
-        format!("{:.0} Ko", bytes as f64 / KB as f64)
-    } else {
-        format!("{bytes} o")
-    }
-}
 
 // ---------------------------------------------------------------------------
 // generate_manifest (for Cert feature)
@@ -889,14 +959,7 @@ pub fn generate_manifest(
 
     for (idx, src_file) in src_files.iter().enumerate() {
         let rel = src_file.strip_prefix(source)?;
-        let file_size = std::fs::metadata(src_file).map(|m| m.len()).unwrap_or(0);
-        let modified_at = std::fs::metadata(src_file)
-            .and_then(|m| m.modified())
-            .map(|t| {
-                let secs = t.duration_since(std::time::SystemTime::UNIX_EPOCH).unwrap_or_default().as_secs();
-                format_unix_time(secs)
-            })
-            .unwrap_or_else(|_| "unknown".to_string());
+        let (file_size, modified_at) = get_file_metadata(src_file);
 
         on_progress(CopyProgress {
             current_file: rel.to_path_buf(),
@@ -925,7 +988,7 @@ pub fn generate_manifest(
             }
             Err(e) => {
                 errors += 1;
-                eprintln!("Erreur lors du hashage de {} : {e}", rel.display());
+                tracing::error!(path = %rel.display(), "erreur de hashage : {e}");
                 file_entries.push(ferr_report::FileEntry {
                     path: rel.to_string_lossy().replace('\\', "/"),
                     size: file_size,
@@ -940,15 +1003,8 @@ pub fn generate_manifest(
     }
 
     let duration_secs = start.elapsed().as_secs_f64();
-    let hostname = hostname::get().map(|h| h.to_string_lossy().into_owned()).unwrap_or_else(|_| "unknown".to_string());
-
-    let status = if errors == 0 {
-        ferr_report::JobStatus::Ok
-    } else if errors < total_files {
-        ferr_report::JobStatus::Partial
-    } else {
-        ferr_report::JobStatus::Failed
-    };
+    let hostname = get_hostname();
+    let status = job_status_from_errors(errors, total_files);
 
     on_progress(CopyProgress {
         current_file: PathBuf::from("(terminé)"),
@@ -967,6 +1023,7 @@ pub fn generate_manifest(
         generated_at: chrono::Utc::now().to_rfc3339(),
         hostname,
         source_path: source.to_string_lossy().into_owned(),
+        destinations: Vec::new(),
         total_files,
         total_size_bytes,
         duration_secs,

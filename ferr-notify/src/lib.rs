@@ -1,3 +1,8 @@
+//! Notifications système cross-platform (macOS, Linux, Windows).
+//!
+//! Enveloppe légère autour de `notify-rust`. Les erreurs sont ignorées
+//! silencieusement pour ne jamais bloquer le flux de copie principal.
+
 /// Envoie une notification système "opération terminée".
 /// Ne panique jamais — les erreurs de notification sont ignorées silencieusement.
 pub fn notify_done(title: &str, message: &str, success: bool) -> anyhow::Result<()> {
@@ -24,7 +29,7 @@ fn send_notification(title: &str, subtitle: &str, body: &str) -> anyhow::Result<
 
     // Les erreurs de notification ne sont pas fatales
     if let Err(e) = result {
-        eprintln!("ferr-notify : notification non envoyée : {e}");
+        tracing::warn!("notification non envoyée : {e}");
     }
     Ok(())
 }

@@ -1,3 +1,8 @@
+//! Génération de rapports PDF depuis un manifest ferr.
+//!
+//! Produit un rapport A4 horodaté avec résumé, tableau des fichiers copiés
+//! et pied de page contenant le hash du manifest pour chaîne de contrôle.
+
 use std::io::BufWriter;
 use std::path::Path;
 
@@ -63,7 +68,7 @@ pub fn generate_report(manifest: &ferr_report::Manifest, output: &Path) -> anyho
     let summary_lines = [
         format!("Source         : {}", manifest.source_path),
         format!("Fichiers       : {}", manifest.total_files),
-        format!("Taille totale  : {}", human_size(manifest.total_size_bytes)),
+        format!("Taille totale  : {}", ferr_report::human_size(manifest.total_size_bytes)),
         format!("Durée          : {:.1}s", manifest.duration_secs),
         format!("Statut global  : {:?}", manifest.status),
     ];
@@ -119,7 +124,7 @@ pub fn generate_report(manifest: &ferr_report::Manifest, output: &Path) -> anyho
         let layer_ref = doc.get_page(current_page).get_layer(current_layer_idx);
 
         let path_trunc = truncate(&entry.path, 42);
-        let size_str = human_size(entry.size);
+        let size_str = ferr_report::human_size(entry.size);
         let hash_trunc = truncate(&entry.hash, 16);
         let status_str = format!("{:?}", entry.status);
 
@@ -161,20 +166,6 @@ fn truncate(s: &str, max: usize) -> String {
     }
 }
 
-fn human_size(bytes: u64) -> String {
-    const GB: u64 = 1_000_000_000;
-    const MB: u64 = 1_000_000;
-    const KB: u64 = 1_000;
-    if bytes >= GB {
-        format!("{:.2} Go", bytes as f64 / GB as f64)
-    } else if bytes >= MB {
-        format!("{:.1} Mo", bytes as f64 / MB as f64)
-    } else if bytes >= KB {
-        format!("{:.0} Ko", bytes as f64 / KB as f64)
-    } else {
-        format!("{bytes} o")
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -186,6 +177,7 @@ mod tests {
             generated_at: "2025-01-01T00:00:00Z".into(),
             hostname: "test-host".into(),
             source_path: "/footage/A001".into(),
+            destinations: vec!["/backup/A001".into()],
             total_files: 2,
             total_size_bytes: 2048,
             duration_secs: 1.5,

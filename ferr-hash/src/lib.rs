@@ -1,3 +1,8 @@
+//! Hachage de fichiers multi-algorithmes (xxHash64, SHA-256).
+//!
+//! Fournit le trait [`Hasher`] et deux implémentations : [`XxHasher`] (rapide,
+//! non cryptographique) et [`Sha256Hasher`] (cryptographique, plus lent).
+
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
@@ -12,10 +17,21 @@ const CHUNK_SIZE: usize = 8 * 1024 * 1024; // 8 MiB
 // Types publics
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum HashAlgo {
+    #[default]
     XxHash64,
     Sha256,
+}
+
+impl HashAlgo {
+    /// Converts a string representation to a `HashAlgo`, defaulting to `XxHash64`.
+    pub fn from_lossy(s: &str) -> Self {
+        match s.to_lowercase().as_str() {
+            "sha256" => Self::Sha256,
+            _ => Self::XxHash64,
+        }
+    }
 }
 
 impl std::fmt::Display for HashAlgo {
@@ -100,7 +116,11 @@ impl Hasher for Sha256Hasher {
             bytes_read += n as u64;
         }
         let result = hasher.finalize();
-        let hex: String = result.iter().map(|b| format!("{:02x}", b)).collect();
+        use std::fmt::Write as _;
+        let mut hex = String::with_capacity(64);
+        for b in result.iter() {
+            write!(&mut hex, "{b:02x}").unwrap(); // infaillible sur String
+        }
         Ok(HashResult {
             algo: HashAlgo::Sha256,
             hex,

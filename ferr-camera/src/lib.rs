@@ -1,3 +1,9 @@
+//! Détection et classification des fichiers vidéo cinéma.
+//!
+//! Reconnaît les formats caméra courants (BRAW, ARRIRAW, R3D, ProRes, MXF…),
+//! groupe les fichiers en [`Clip`]s, et fournit [`apply_rename_template`]
+//! pour renommer selon les conventions de tournage.
+
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 

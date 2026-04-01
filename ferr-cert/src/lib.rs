@@ -1,3 +1,15 @@
+//! Certificat d'intégrité Ferr (Ferr Certificate).
+//!
+//! Un certificat encapsule un [`Manifest`][ferr_report::Manifest] signé par un
+//! checksum SHA-256 dans un enveloppe Base64 délimitée par des marqueurs PEM.
+//!
+//! # Limitation de sécurité
+//!
+//! La protection repose sur SHA-256 (symétrique) : elle garantit l'**intégrité**
+//! du manifest (détection de toute altération) mais **pas l'authenticité** —
+//! un attaquant ayant accès au fichier peut recalculer un checksum valide.
+//! Pour une authenticité garantie, envisagez une signature asymétrique Ed25519.
+
 use anyhow::Result;
 use base64::{engine::general_purpose, Engine as _};
 use ferr_report::Manifest;
@@ -59,12 +71,12 @@ pub fn unpack(cert_data: &str) -> Result<Manifest, CertError> {
 
     let payload = general_purpose::STANDARD.decode(b64_str)?;
 
-    let checksum_len = 32;
-    if payload.len() < checksum_len {
+    const SHA256_LEN: usize = 32; // SHA-256 produit toujours 32 octets
+    if payload.len() < SHA256_LEN {
         return Err(CertError::MalformedFormat);
     }
 
-    let (expected_checksum, json_bytes) = payload.split_at(checksum_len);
+    let (expected_checksum, json_bytes) = payload.split_at(SHA256_LEN);
 
     let mut hasher = Sha256::new();
     hasher.update(json_bytes);
@@ -89,6 +101,7 @@ mod tests {
             generated_at: "2026-01-01T00:00:00Z".into(),
             hostname: "test-host".into(),
             source_path: "/test/path".into(),
+            destinations: Vec::new(),
             total_files: 1,
             total_size_bytes: 100,
             duration_secs: 1.0,

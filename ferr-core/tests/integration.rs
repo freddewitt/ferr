@@ -5,6 +5,7 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
 use ferr_core::{CopyJob, HashAlgo};
 use ferr_report::{FileStatus, JobStatus};
@@ -29,7 +30,7 @@ fn make_source(dir: &Path, n: usize, size: usize) {
     }
 }
 
-/// Construit un CopyJob minimal (PDF/notify/session désactivés pour les tests).
+/// Construit un CopyJob minimal pour les tests (pas de hooks).
 fn job(src: PathBuf, dst: PathBuf) -> CopyJob {
     CopyJob {
         source: src,
@@ -42,9 +43,6 @@ fn job(src: PathBuf, dst: PathBuf) -> CopyJob {
         rename_template: None,
         auto_eject: false,
         dedup: false,
-        generate_pdf: false,
-        send_notify: false,
-        record_session: false,
     }
 }
 
@@ -58,7 +56,7 @@ fn copy_basic_creates_files_and_manifest() {
     let dst = tmp("copy_basic_dst");
     make_source(&src, 5, 4096);
 
-    let manifest = ferr_core::run_copy(job(src.clone(), dst.clone()), |_| {}).unwrap();
+    let manifest = ferr_core::run_copy(job(src.clone(), dst.clone()), |_| {}, &[]).unwrap();
 
     // Résumé global
     assert_eq!(manifest.total_files, 5);
@@ -105,7 +103,7 @@ fn copy_mirror_two_destinations() {
     let mut j = job(src.clone(), dst1.clone());
     j.destinations.push(dst2.clone());
 
-    let manifest = ferr_core::run_copy(j, |_| {}).unwrap();
+    let manifest = ferr_core::run_copy(j, |_| {}, &[]).unwrap();
     assert_eq!(manifest.total_files, 3);
 
     // Les fichiers existent sur les deux destinations
@@ -140,7 +138,7 @@ fn copy_sha256() {
     let mut j = job(src.clone(), dst.clone());
     j.hash_algo = HashAlgo::Sha256;
 
-    let manifest = ferr_core::run_copy(j, |_| {}).unwrap();
+    let manifest = ferr_core::run_copy(j, |_| {}, &[]).unwrap();
 
     assert_eq!(manifest.total_files, 2);
     for entry in &manifest.files {
@@ -163,7 +161,7 @@ fn verify_ok_after_copy() {
     let dst = tmp("verify_ok_dst");
     make_source(&src, 4, 2048);
 
-    let manifest = ferr_core::run_copy(job(src.clone(), dst.clone()), |_| {}).unwrap();
+    let manifest = ferr_core::run_copy(job(src.clone(), dst.clone()), |_| {}, &[]).unwrap();
     let manifest_path = dst.join("ferr-manifest.json");
 
     let hasher: Box<dyn ferr_hash::Hasher> = Box::new(ferr_hash::XxHasher);
@@ -193,7 +191,7 @@ fn verify_detects_corrupted_file() {
     let dst = tmp("corrupt_dst");
     make_source(&src, 3, 4096);
 
-    let manifest = ferr_core::run_copy(job(src.clone(), dst.clone()), |_| {}).unwrap();
+    let manifest = ferr_core::run_copy(job(src.clone(), dst.clone()), |_| {}, &[]).unwrap();
 
     // Corrompre le premier fichier à la destination
     let first = &manifest.files[0].path;
@@ -226,7 +224,7 @@ fn verify_detects_missing_file() {
     let dst = tmp("missing_dst");
     make_source(&src, 3, 1024);
 
-    let manifest = ferr_core::run_copy(job(src.clone(), dst.clone()), |_| {}).unwrap();
+    let manifest = ferr_core::run_copy(job(src.clone(), dst.clone()), |_| {}, &[]).unwrap();
 
     // Supprimer un fichier à la destination
     let removed = dst.join(&manifest.files[0].path);
@@ -255,7 +253,7 @@ fn scan_bitrot_clean() {
     let dst = tmp("bitrot_clean_dst");
     make_source(&src, 4, 2048);
 
-    let manifest = ferr_core::run_copy(job(src.clone(), dst.clone()), |_| {}).unwrap();
+    let manifest = ferr_core::run_copy(job(src.clone(), dst.clone()), |_| {}, &[]).unwrap();
 
     let hasher: Box<dyn ferr_hash::Hasher> = Box::new(ferr_hash::XxHasher);
     let report = ferr_verify::scan_bitrot(&dst, &manifest, hasher.as_ref(), None, |_| {}).unwrap();
@@ -274,7 +272,7 @@ fn scan_bitrot_detects_corruption() {
     let dst = tmp("bitrot_detect_dst");
     make_source(&src, 3, 4096);
 
-    let manifest = ferr_core::run_copy(job(src.clone(), dst.clone()), |_| {}).unwrap();
+    let manifest = ferr_core::run_copy(job(src.clone(), dst.clone()), |_| {}, &[]).unwrap();
 
     // Introduire du bit rot (modification in-place)
     let target = dst.join(&manifest.files[1].path);
@@ -340,7 +338,7 @@ fn export_ale_produces_valid_file() {
     let dst = tmp("ale_dst");
     make_source(&src, 4, 512);
 
-    let manifest = ferr_core::run_copy(job(src.clone(), dst.clone()), |_| {}).unwrap();
+    let manifest = ferr_core::run_copy(job(src.clone(), dst.clone()), |_| {}, &[]).unwrap();
     let manifest_path = dst.join("ferr-manifest.json");
 
     let ale_path = dst.join("report.ale");
@@ -383,7 +381,7 @@ fn export_csv_produces_valid_file() {
     let dst = tmp("csv_dst");
     make_source(&src, 3, 512);
 
-    let manifest = ferr_core::run_copy(job(src.clone(), dst.clone()), |_| {}).unwrap();
+    let manifest = ferr_core::run_copy(job(src.clone(), dst.clone()), |_| {}, &[]).unwrap();
 
     let csv_path = dst.join("report.csv");
     ferr_report::export_csv(&manifest, &csv_path).unwrap();
@@ -414,7 +412,7 @@ fn pdf_report_is_non_empty() {
     let dst = tmp("pdf_dst");
     make_source(&src, 5, 1024);
 
-    let _manifest = ferr_core::run_copy(job(src.clone(), dst.clone()), |_| {}).unwrap();
+    let _manifest = ferr_core::run_copy(job(src.clone(), dst.clone()), |_| {}, &[]).unwrap();
     let manifest_path = dst.join("ferr-manifest.json");
     let loaded = ferr_report::load_manifest(&manifest_path).unwrap();
 
@@ -444,7 +442,7 @@ fn resume_skips_already_copied_files() {
     make_source(&src, 5, 2048);
 
     // Première copie complète
-    let m1 = ferr_core::run_copy(job(src.clone(), dst.clone()), |_| {}).unwrap();
+    let m1 = ferr_core::run_copy(job(src.clone(), dst.clone()), |_| {}, &[]).unwrap();
     assert_eq!(m1.total_files, 5);
 
     // Ajouter un fichier supplémentaire à la source
@@ -453,7 +451,7 @@ fn resume_skips_already_copied_files() {
     // Reprise
     let mut j = job(src.clone(), dst.clone());
     j.resume = true;
-    let m2 = ferr_core::run_copy(j, |_| {}).unwrap();
+    let m2 = ferr_core::run_copy(j, |_| {}, &[]).unwrap();
 
     // Le nouveau fichier doit avoir été copié
     assert!(dst.join("extra_new.dat").exists());
@@ -483,11 +481,15 @@ fn copy_progress_callback_invoked() {
     make_source(&src, 6, 1024);
 
     let calls = std::sync::atomic::AtomicUsize::new(0);
-    ferr_core::run_copy(job(src.clone(), dst.clone()), |p| {
-        calls.fetch_add(1, Ordering::Relaxed);
-        assert!(p.total_files_done <= p.total_files);
-        assert!(p.file_bytes_done <= p.file_bytes_total || p.file_bytes_total == 0);
-    })
+    ferr_core::run_copy(
+        job(src.clone(), dst.clone()),
+        |p| {
+            calls.fetch_add(1, Ordering::Relaxed);
+            assert!(p.total_files_done <= p.total_files);
+            assert!(p.file_bytes_done <= p.file_bytes_total || p.file_bytes_total == 0);
+        },
+        &[],
+    )
     .unwrap();
 
     assert!(
@@ -514,7 +516,7 @@ fn copy_with_par2_generates_files() {
     let mut j = job(src.clone(), dst.clone());
     j.par2_redundancy = Some(10);
 
-    let manifest = ferr_core::run_copy(j, |_| {}).unwrap();
+    let manifest = ferr_core::run_copy(j, |_| {}, &[]).unwrap();
     assert_eq!(manifest.total_files, 3);
 
     // Les fichiers PAR2 doivent exister dans _par2/
@@ -541,7 +543,7 @@ fn copy_with_par2_generates_files() {
 }
 
 // ---------------------------------------------------------------------------
-// 15. Session history — enregistrement et lecture
+// 15. Session history — enregistrement via hook et lecture
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -555,10 +557,16 @@ fn session_record_and_retrieve() {
     let dst = tmp("session_dst");
     make_source(&src, 2, 512);
 
-    let mut j = job(src.clone(), dst.clone());
-    j.record_session = true;
+    // Hook de session injecté — equivalent à SessionHook dans ferr-cli
+    struct RecordHook;
+    impl ferr_core::PostCopyHook for RecordHook {
+        fn on_copy_done(&self, manifest: &ferr_report::Manifest) -> anyhow::Result<()> {
+            ferr_session::record_session(manifest)
+        }
+    }
+    let hooks: Vec<ferr_core::HookRef> = vec![Arc::new(RecordHook)];
 
-    let manifest = ferr_core::run_copy(j, |_| {}).unwrap();
+    let manifest = ferr_core::run_copy(job(src.clone(), dst.clone()), |_| {}, &hooks).unwrap();
     assert_eq!(manifest.total_files, 2);
 
     // La session doit être enregistrée

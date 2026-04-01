@@ -1,0 +1,55 @@
+# Configuration cargo-deny
+# Exécuter : cargo deny check
+# CI       : cargo install cargo-deny --locked && cargo deny check
+
+[advisories]
+# Rejeter les crates avec des avis de sécurité connus
+db-path = "~/.cargo/advisory-db"
+db-urls = ["https://github.com/rustsec/advisory-db"]
+version = 2
+ignore = []
+
+[licenses]
+# N'accepter que des licences compatibles MIT/Apache-2.0
+version = 2
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-DFS-2016",
+    "Zlib",
+    "CC0-1.0",
+    "OpenSSL",
+]
+# Autoriser les crates sans information de licence (rare)
+allow-osi-fsf-free = "neither"
+default = "deny"
+copyleft = "deny"
+
+[bans]
+# Interdire les doublons de crates (même crate en deux versions)
+multiple-versions = "warn"
+wildcards = "deny"
+highlight = "all"
+
+# Crates explicitement interdits
+deny = []
+
+# Autoriser plusieurs versions pour les crates transitifs connus
+skip = [
+    # printpdf et ses dépendances peuvent tirer des versions différentes
+    { name = "bitflags" },
+    { name = "syn" },
+    { name = "quote" },
+    { name = "proc-macro2" },
+]
+
+[sources]
+# N'autoriser que crates.io et les dépendances path locales
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

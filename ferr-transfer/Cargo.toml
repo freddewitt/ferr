@@ -9,14 +9,9 @@ rayon       = { workspace = true }
 thiserror   = { workspace = true }
 anyhow      = { workspace = true }
 filetime    = { workspace = true }
+tracing     = { workspace = true }
 ferr-hash   = { path = "../ferr-hash" }
 ferr-report = { path = "../ferr-report" }
-
-[target.'cfg(unix)'.dependencies]
-libc = { workspace = true }
-
-[target.'cfg(windows)'.dependencies]
-windows-sys = { workspace = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 xattr = { workspace = true }

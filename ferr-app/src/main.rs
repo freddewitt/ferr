@@ -1,3 +1,8 @@
+// ferr-app est un crate GUI en cours de développement.
+// Les constantes de thème et les champs d'état sont définis par avance
+// pour l'interface à venir — les warnings dead_code sont attendus.
+#![allow(dead_code)]
+
 mod app;
 mod theme;
 mod state;

@@ -1,3 +1,9 @@
+//! Vérification d'intégrité et détection de bit rot.
+//!
+//! Fournit [`verify_manifest`] et [`verify_dirs`] pour comparer les hashes
+//! source/destination, ainsi que [`scan_bitrot`] pour détecter toute
+//! modification silencieuse sur les fichiers déjà copiés.
+
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
@@ -87,7 +93,7 @@ pub fn verify_manifest(
 
     for entry in &manifest.files {
         let rel = PathBuf::from(&entry.path);
-        let dest_file = dest.join(&rel);
+        let dest_file = safe_join(dest, &rel)?;
 
         if !dest_file.exists() {
             report.missing.push(rel);
@@ -131,6 +137,29 @@ fn collect_files_recursive(dir: &Path, out: &mut Vec<PathBuf>) -> anyhow::Result
         }
     }
     Ok(())
+}
+
+/// Vérifie qu'un chemin relatif issu d'un manifest externe ne contient pas
+/// de composantes traversantes (`..` ou chemin absolu).
+///
+/// # Errors
+/// Retourne une erreur si `rel` est absolu ou contient `..`.
+fn safe_join(base: &Path, rel: &Path) -> anyhow::Result<PathBuf> {
+    if rel.is_absolute() {
+        anyhow::bail!(
+            "Chemin absolu refusé dans le manifest : {}",
+            rel.display()
+        );
+    }
+    for component in rel.components() {
+        if matches!(component, std::path::Component::ParentDir) {
+            anyhow::bail!(
+                "Traversée de répertoire refusée dans le manifest : {}",
+                rel.display()
+            );
+        }
+    }
+    Ok(base.join(rel))
 }
 
 // ---------------------------------------------------------------------------
@@ -270,6 +299,7 @@ mod tests {
             generated_at: "2025-01-01T00:00:00Z".into(),
             hostname: "host".into(),
             source_path: "/src".into(),
+            destinations: Vec::new(),
             total_files: 2,
             total_size_bytes: hash_a.bytes_read + hash_b.bytes_read,
             duration_secs: 0.1,
@@ -369,7 +399,7 @@ pub fn scan_bitrot(
             current: rel.clone(),
         });
 
-        let dest_file = dest.join(&rel);
+        let dest_file = safe_join(dest, &rel)?;
         if !dest_file.exists() {
             corrupted.push(BitRotEntry {
                 path: rel,
@@ -425,6 +455,7 @@ mod scan_tests {
             generated_at: "2020-01-01T00:00:00Z".into(),
             hostname: "host".into(),
             source_path: "/src".into(),
+            destinations: Vec::new(),
             total_files: 1,
             total_size_bytes: 9,
             duration_secs: 0.1,
@@ -480,6 +511,50 @@ mod scan_tests {
         let report = scan_bitrot(&base, &manifest, &XxHasher, Some(since), |_| {}).unwrap();
         assert_eq!(report.skipped, 0); // 2020 < 2025 → pas skippé
         assert_eq!(report.scanned, 1);
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn scan_since_skips_file_modified_after_since() {
+        let base = std::env::temp_dir().join("ferr_scan_since_skip");
+        std::fs::create_dir_all(&base).unwrap();
+        std::fs::write(base.join("file_a.bin"), b"content_a").unwrap();
+
+        // Manifest avec modified_at en 2030 (futur par rapport à since)
+        let files = vec![{
+            let hasher = XxHasher;
+            let h = hasher.hash_file(&base.join("file_a.bin")).unwrap();
+            ferr_report::FileEntry {
+                path: "file_a.bin".into(),
+                size: h.bytes_read,
+                hash_algo: "xxhash64".into(),
+                hash: h.hex,
+                modified_at: "2030-01-01T00:00:00Z".into(), // après since
+                status: ferr_report::FileStatus::Ok,
+                par2_generated: false,
+            }
+        }];
+        let manifest = ferr_report::Manifest {
+            ferr_version: "0.1.0".into(),
+            generated_at: "2030-01-01T00:00:00Z".into(),
+            hostname: "host".into(),
+            source_path: "/src".into(),
+            destinations: Vec::new(),
+            total_files: 1,
+            total_size_bytes: 9,
+            duration_secs: 0.1,
+            status: ferr_report::JobStatus::Ok,
+            files,
+        };
+
+        // since = 2025 → fichier modified_at=2030 EST APRÈS since → doit être skippé
+        let since = chrono::DateTime::parse_from_rfc3339("2025-01-01T00:00:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        let report = scan_bitrot(&base, &manifest, &XxHasher, Some(since), |_| {}).unwrap();
+        assert_eq!(report.skipped, 1, "Le fichier postérieur à since doit être ignoré");
+        assert_eq!(report.scanned, 0);
+
         std::fs::remove_dir_all(&base).ok();
     }
 }

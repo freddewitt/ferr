@@ -1,11 +1,24 @@
 use std::path::PathBuf;
 use std::process;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Instant;
 
 use clap::{Parser, Subcommand, ValueEnum};
 use console::style;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+
+// ---------------------------------------------------------------------------
+// Constantes d'affichage
+// ---------------------------------------------------------------------------
+
+/// Largeur max d'affichage d'un nom de fichier (avec préfixe "…")
+const FILE_NAME_DISPLAY_MAX: usize = 40;
+/// Largeur max d'affichage d'un chemin de destination
+const DEST_PATH_DISPLAY_MAX: usize = 30;
+/// Largeur du séparateur horizontal dans les tableaux
+const TABLE_WIDTH: usize = 80;
+/// Largeur du séparateur horizontal dans l'historique
+const HISTORY_TABLE_WIDTH: usize = 70;
 
 // ---------------------------------------------------------------------------
 // CLI
@@ -207,6 +220,15 @@ enum CertAction {
 // ---------------------------------------------------------------------------
 
 fn main() {
+    // Init structured logging — niveau contrôlable via RUST_LOG (ex: RUST_LOG=warn)
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn")),
+        )
+        .with_target(false)
+        .init();
+
     let cli = Cli::parse();
 
     // Respect NO_COLOR
@@ -244,7 +266,7 @@ fn run(cli: Cli) -> anyhow::Result<i32> {
             no_pdf,
             dry_run,
             quiet,
-        } => cmd_copy(
+        } => cmd_copy(CopyArgs {
             src,
             dest,
             dest2,
@@ -262,7 +284,7 @@ fn run(cli: Cli) -> anyhow::Result<i32> {
             no_pdf,
             dry_run,
             quiet,
-        ),
+        }),
         Commands::Verify {
             src_or_manifest,
             dest,
@@ -309,11 +331,74 @@ fn run(cli: Cli) -> anyhow::Result<i32> {
 }
 
 // ---------------------------------------------------------------------------
+// Hooks post-copie — implémentations concrètes de PostCopyHook
+// ---------------------------------------------------------------------------
+
+/// Génère un rapport PDF dans chaque dossier de destination.
+struct PdfHook;
+impl ferr_core::PostCopyHook for PdfHook {
+    fn on_copy_done(&self, manifest: &ferr_report::Manifest) -> anyhow::Result<()> {
+        let pdf_name = format!(
+            "ferr_report_{}.pdf",
+            chrono::Utc::now().format("%Y%m%d_%H%M%S")
+        );
+        for dest_str in &manifest.destinations {
+            let pdf_path = PathBuf::from(dest_str).join(&pdf_name);
+            if let Err(e) = ferr_pdf::generate_report(manifest, &pdf_path) {
+                eprintln!("PDF non généré dans {dest_str} : {e}");
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Enregistre la session dans la base SQLite locale.
+struct SessionHook;
+impl ferr_core::PostCopyHook for SessionHook {
+    fn on_copy_done(&self, manifest: &ferr_report::Manifest) -> anyhow::Result<()> {
+        ferr_session::record_session(manifest)?;
+        Ok(())
+    }
+}
+
+/// Envoie une notification système à la fin de la copie.
+struct NotifyHook;
+impl ferr_core::PostCopyHook for NotifyHook {
+    fn on_copy_done(&self, manifest: &ferr_report::Manifest) -> anyhow::Result<()> {
+        let title = "ferr — Copie terminée";
+        let msg = format!(
+            "{} fichiers · {} · {:.1}s",
+            manifest.total_files,
+            ferr_report::human_size(manifest.total_size_bytes),
+            manifest.duration_secs,
+        );
+        let ok = manifest.status == ferr_report::JobStatus::Ok;
+        let _ = ferr_notify::notify_done(title, &msg, ok);
+        Ok(())
+    }
+}
+
+/// Construit le vecteur de hooks selon les flags CLI.
+fn build_hooks(no_pdf: bool, no_notify: bool, no_session: bool) -> Vec<ferr_core::HookRef> {
+    let mut hooks: Vec<ferr_core::HookRef> = Vec::new();
+    if !no_session {
+        hooks.push(Arc::new(SessionHook));
+    }
+    if !no_pdf {
+        hooks.push(Arc::new(PdfHook));
+    }
+    if !no_notify {
+        hooks.push(Arc::new(NotifyHook));
+    }
+    hooks
+}
+
+// ---------------------------------------------------------------------------
 // cmd_copy
 // ---------------------------------------------------------------------------
 
-#[allow(clippy::too_many_arguments)]
-fn cmd_copy(
+/// Arguments regroupés pour la commande `copy`.
+struct CopyArgs {
     src: PathBuf,
     dest: PathBuf,
     dest2: Option<PathBuf>,
@@ -329,9 +414,30 @@ fn cmd_copy(
     no_preserve_meta: bool,
     no_notify: bool,
     no_pdf: bool,
-    dry_run_flag: bool,
+    dry_run: bool,
     quiet: bool,
-) -> anyhow::Result<i32> {
+}
+
+fn cmd_copy(args: CopyArgs) -> anyhow::Result<i32> {
+    let CopyArgs {
+        src,
+        dest,
+        dest2,
+        dest3,
+        hash,
+        par2,
+        resume,
+        camera,
+        rename,
+        eject,
+        dedup,
+        profile,
+        no_preserve_meta,
+        no_notify,
+        no_pdf,
+        dry_run: dry_run_flag,
+        quiet,
+    } = args;
     let mut destinations = vec![dest];
     if let Some(d) = dest2 {
         destinations.push(d);
@@ -345,20 +451,14 @@ fn cmd_copy(
     let (destinations, hash_algo, par2, camera, eject, rename) = if let Some(profile_name) = profile
     {
         match ferr_core::load_profile(&profile_name) {
-            Ok(p) => {
-                let (ha, _) = match p.hash_algo.as_str() {
-                    "sha256" => (ferr_core::HashAlgo::Sha256, "sha256"),
-                    _ => (ferr_core::HashAlgo::XxHash64, "xxhash"),
-                };
-                (
-                    p.destinations,
-                    ha,
-                    p.par2_redundancy,
-                    p.camera_mode,
-                    p.auto_eject,
-                    rename,
-                )
-            }
+            Ok(p) => (
+                p.destinations,
+                ferr_core::HashAlgo::from_lossy(&p.hash_algo),
+                p.par2_redundancy,
+                p.camera_mode,
+                p.auto_eject,
+                rename,
+            ),
             Err(e) => {
                 eprintln!("Profil non trouvé : {e}");
                 (destinations, hash_algo, par2, camera, eject, rename)
@@ -367,6 +467,8 @@ fn cmd_copy(
     } else {
         (destinations, hash_algo, par2, camera, eject, rename)
     };
+
+    let hooks = build_hooks(no_pdf, no_notify, false);
 
     let job = ferr_core::CopyJob {
         source: src.clone(),
@@ -379,9 +481,6 @@ fn cmd_copy(
         rename_template: rename,
         auto_eject: eject,
         dedup,
-        generate_pdf: !no_pdf,
-        send_notify: !no_notify,
-        record_session: true,
     };
 
     // Mode dry-run
@@ -440,15 +539,14 @@ fn cmd_copy(
         .progress_chars("█▉▊▋▌▍▎▏  "),
     );
 
-    let file_count = Arc::new(Mutex::new(0usize));
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let file_count = Arc::new(AtomicUsize::new(0));
     let copy_start = Instant::now();
 
     let on_progress = {
         let global_bar = global_bar.clone();
         let file_bar = file_bar.clone();
         let file_count = Arc::clone(&file_count);
-        let quiet = quiet;
-
         move |p: ferr_core::CopyProgress| {
             if quiet {
                 return;
@@ -473,8 +571,8 @@ fn cmd_copy(
                         .file_name()
                         .map(|n| n.to_string_lossy().into_owned())
                         .unwrap_or_default();
-                    let trunc = if name.len() > 40 {
-                        format!("…{}", &name[name.len() - 39..])
+                    let trunc = if name.len() > FILE_NAME_DISPLAY_MAX {
+                        format!("…{}", &name[name.len() - (FILE_NAME_DISPLAY_MAX - 1)..])
                     } else {
                         name
                     };
@@ -483,9 +581,9 @@ fn cmd_copy(
                     file_bar.set_position(p.file_bytes_done);
                     file_bar.set_message(format!("{phase_label} {trunc}"));
                     global_bar.set_length(p.total_files as u64);
-                    let done = *file_count.lock().unwrap();
+                    let done = file_count.load(Ordering::Relaxed);
                     if p.total_files_done > done {
-                        *file_count.lock().unwrap() = p.total_files_done;
+                        file_count.store(p.total_files_done, Ordering::Relaxed);
                         global_bar.set_position(p.total_files_done as u64);
                     }
                 }
@@ -493,7 +591,7 @@ fn cmd_copy(
         }
     };
 
-    let manifest = ferr_core::run_copy(job, on_progress)?;
+    let manifest = ferr_core::run_copy(job, on_progress, &hooks)?;
     if !quiet {
         mp.clear()?;
     }
@@ -679,39 +777,41 @@ fn cmd_watch(
     eject: bool,
     quiet: bool,
 ) -> anyhow::Result<i32> {
-    let (_, hash_algo_str) = hash_choice_to_algo(&hash);
+    let (hash_algo_from_args, _) = hash_choice_to_algo(&hash);
 
-    let (destinations, hash_str, par2, camera, eject) = if let Some(name) = profile {
+    let (destinations, watch_hash_algo, par2, camera, eject) = if let Some(name) = profile {
         match ferr_core::load_profile(&name) {
             Ok(p) => (
                 p.destinations,
-                p.hash_algo,
+                ferr_core::HashAlgo::from_lossy(&p.hash_algo),
                 p.par2_redundancy,
                 p.camera_mode,
                 p.auto_eject,
             ),
             Err(e) => {
                 eprintln!("Profil non trouvé : {e}");
-                (dest, hash_algo_str.to_string(), par2, camera, eject)
+                (dest, hash_algo_from_args, par2, camera, eject)
             }
         }
     } else {
-        (dest, hash_algo_str.to_string(), par2, camera, eject)
+        (dest, hash_algo_from_args, par2, camera, eject)
     };
+
+    let watch_hooks = build_hooks(false, false, false); // PDF + session + notify par défaut
 
     let config = ferr_core::WatchConfig {
         mount_point: mount_point.clone(),
         copy_job: ferr_core::CopyJobTemplate {
             destinations,
-            hash_algo_str: hash_str,
+            hash_algo: watch_hash_algo,
             par2_redundancy: par2,
             camera_mode: camera,
             preserve_metadata: true,
-            auto_eject: eject,
             ..Default::default()
         },
         delay_secs: delay,
         auto_eject: eject,
+        hooks: watch_hooks,
     };
 
     if !quiet {
@@ -870,11 +970,8 @@ fn cmd_history(action: HistoryAction) -> anyhow::Result<i32> {
             if sessions.is_empty() {
                 println!("  Aucune session enregistrée.");
             } else {
-                println!(
-                    "  {:>5}  {:26}  {:>8}  {:>10}  {}",
-                    "ID", "Date", "Fichiers", "Taille", "Source"
-                );
-                let sep = "─".repeat(70);
+                println!("  {:>5}  {:26}  {:>8}  {:>10}  Source", "ID", "Date", "Fichiers", "Taille");
+                let sep = "─".repeat(HISTORY_TABLE_WIDTH);
                 println!("  {sep}");
                 for s in &sessions {
                     println!(
@@ -939,12 +1036,9 @@ fn print_summary_table(
     elapsed: std::time::Duration,
     par2_pct: Option<u8>,
 ) {
-    let sep = "─".repeat(80);
+    let sep = "─".repeat(TABLE_WIDTH);
     println!("{sep}");
-    println!(
-        "  {:<30}  {:>10}  {:>10}  {:>10}  {:>7}  {}",
-        "Destination", "Fichiers", "Taille", "Durée", "Erreurs", "Statut"
-    );
+    println!("  {:<30}  {:>10}  {:>10}  {:>10}  {:>7}  Statut", "Destination", "Fichiers", "Taille", "Durée", "Erreurs");
     println!("{sep}");
 
     let errors = manifest
@@ -962,8 +1056,8 @@ fn print_summary_table(
 
     for dest in destinations {
         let s = dest.to_string_lossy();
-        let t = if s.len() > 30 {
-            format!("…{}", &s[s.len() - 29..])
+        let t = if s.len() > DEST_PATH_DISPLAY_MAX {
+            format!("…{}", &s[s.len() - (DEST_PATH_DISPLAY_MAX - 1)..])
         } else {
             s.into_owned()
         };
@@ -996,18 +1090,7 @@ fn print_summary_table(
 }
 
 fn human_size(bytes: u64) -> String {
-    const GB: u64 = 1_000_000_000;
-    const MB: u64 = 1_000_000;
-    const KB: u64 = 1_000;
-    if bytes >= GB {
-        format!("{:.2} Go", bytes as f64 / GB as f64)
-    } else if bytes >= MB {
-        format!("{:.1} Mo", bytes as f64 / MB as f64)
-    } else if bytes >= KB {
-        format!("{:.0} Ko", bytes as f64 / KB as f64)
-    } else {
-        format!("{bytes} o")
-    }
+    ferr_report::human_size(bytes)
 }
 
 // ---------------------------------------------------------------------------

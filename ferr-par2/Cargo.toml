@@ -8,5 +8,6 @@ build   = "build.rs"
 [dependencies]
 thiserror = { workspace = true }
 anyhow    = { workspace = true }
+tracing   = { workspace = true }
 rust-par2 = "0.1"
 
