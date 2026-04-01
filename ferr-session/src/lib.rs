@@ -361,11 +361,12 @@ mod tests {
 
     fn with_test_db<F: FnOnce()>(f: F) {
         let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let tmp_dir = std::env::temp_dir()
-            .join(format!("ferr_session_{}", std::process::id()));
+        let tmp_dir = std::env::temp_dir().join(format!("ferr_session_{}", std::process::id()));
         std::fs::create_dir_all(&tmp_dir).unwrap();
         // SAFETY: protégé par TEST_LOCK — un seul test à la fois modifie l'env
-        unsafe { std::env::set_var("FERR_DATA_DIR", &tmp_dir); }
+        unsafe {
+            std::env::set_var("FERR_DATA_DIR", &tmp_dir);
+        }
         f();
     }
 

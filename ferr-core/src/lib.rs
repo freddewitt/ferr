@@ -233,7 +233,11 @@ pub fn eject_volume(mount_point: &Path) -> anyhow::Result<()> {
         let mount_str = mount_point.to_string_lossy();
         let drive = mount_str.trim_end_matches(['\\', '/']);
         if drive.len() != 2
-            || !drive.chars().next().map(|c| c.is_ascii_alphabetic()).unwrap_or(false)
+            || !drive
+                .chars()
+                .next()
+                .map(|c| c.is_ascii_alphabetic())
+                .unwrap_or(false)
             || drive.chars().nth(1) != Some(':')
         {
             anyhow::bail!(
@@ -441,10 +445,14 @@ pub fn run_watch(
                     };
 
                     let hooks_thread = config_thread.hooks.clone();
-                    match run_copy(job, {
-                        let on_evt = on_event_thread.clone();
-                        move |p| on_evt(WatchEvent::CopyProgress(p))
-                    }, &hooks_thread) {
+                    match run_copy(
+                        job,
+                        {
+                            let on_evt = on_event_thread.clone();
+                            move |p| on_evt(WatchEvent::CopyProgress(p))
+                        },
+                        &hooks_thread,
+                    ) {
                         Ok(manifest) => {
                             on_event_thread(WatchEvent::CopyDone {
                                 volume: name.clone(),
@@ -515,9 +523,8 @@ pub fn run_copy(
     };
 
     // Vérification espace disque
-    let space_checks =
-        check_space(&job.source, &job.destinations, job.par2_redundancy)
-            .context("Impossible de vérifier l'espace disque disponible")?;
+    let space_checks = check_space(&job.source, &job.destinations, job.par2_redundancy)
+        .context("Impossible de vérifier l'espace disque disponible")?;
     for check in &space_checks {
         if !check.ok {
             anyhow::bail!(
@@ -710,7 +717,9 @@ pub fn run_copy(
         generated_at: chrono::Utc::now().to_rfc3339(),
         hostname,
         source_path: job.source.to_string_lossy().into_owned(),
-        destinations: job.destinations.iter()
+        destinations: job
+            .destinations
+            .iter()
             .map(|p| p.to_string_lossy().into_owned())
             .collect(),
         total_files,
@@ -803,9 +812,13 @@ fn dir_size(dir: &Path) -> anyhow::Result<u64> {
 
 fn filesystem_root() -> PathBuf {
     #[cfg(windows)]
-    { PathBuf::from("C:\\") }
+    {
+        PathBuf::from("C:\\")
+    }
     #[cfg(not(windows))]
-    { PathBuf::from("/") }
+    {
+        PathBuf::from("/")
+    }
 }
 
 fn find_existing_ancestor(path: &Path) -> PathBuf {
@@ -934,7 +947,6 @@ fn format_unix_time(secs: u64) -> String {
     let dt = chrono::DateTime::from_timestamp(secs as i64, 0).unwrap_or_default();
     dt.format("%Y-%m-%dT%H:%M:%SZ").to_string()
 }
-
 
 // ---------------------------------------------------------------------------
 // generate_manifest (for Cert feature)

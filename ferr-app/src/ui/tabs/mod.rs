@@ -1,5 +1,5 @@
-use iced::Element;
 use crate::app::Message;
+use iced::Element;
 
 pub mod copy_tab {
     use super::*;

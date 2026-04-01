@@ -68,7 +68,10 @@ pub fn generate_report(manifest: &ferr_report::Manifest, output: &Path) -> anyho
     let summary_lines = [
         format!("Source         : {}", manifest.source_path),
         format!("Fichiers       : {}", manifest.total_files),
-        format!("Taille totale  : {}", ferr_report::human_size(manifest.total_size_bytes)),
+        format!(
+            "Taille totale  : {}",
+            ferr_report::human_size(manifest.total_size_bytes)
+        ),
         format!("Durée          : {:.1}s", manifest.duration_secs),
         format!("Statut global  : {:?}", manifest.status),
     ];
@@ -165,7 +168,6 @@ fn truncate(s: &str, max: usize) -> String {
         format!("…{}", &s[s.len() - (max - 1)..])
     }
 }
-
 
 #[cfg(test)]
 mod tests {

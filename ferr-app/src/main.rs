@@ -4,13 +4,13 @@
 #![allow(dead_code)]
 
 mod app;
-mod theme;
-mod state;
 mod bridge;
+mod state;
+mod theme;
 mod ui;
 
-use iced::{application, window, Size};
 use app::FerrApp;
+use iced::{application, window, Size};
 
 fn main() -> iced::Result {
     application("ferr", FerrApp::update, FerrApp::view)

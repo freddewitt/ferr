@@ -1,5 +1,5 @@
-use iced::Subscription;
 use ferr_core::CopyJob;
+use iced::Subscription;
 
 #[derive(Debug, Clone)]
 pub enum CopyMsg {

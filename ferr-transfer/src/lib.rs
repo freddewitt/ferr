@@ -147,9 +147,7 @@ pub fn copy_file(
     // --- Écriture parallèle + vérification sur toutes les destinations -------
     let results: Vec<DestResult> = destinations
         .par_iter()
-        .map(|dest| {
-            write_verify_retry(dest.as_ref(), rel_path, src, &src_hash.hex, hasher)
-        })
+        .map(|dest| write_verify_retry(dest.as_ref(), rel_path, src, &src_hash.hex, hasher))
         .collect();
 
     // --- Préservation des métadonnées ----------------------------------------
@@ -297,9 +295,8 @@ mod tests {
         std::fs::create_dir_all(&dest_root).unwrap();
         std::fs::write(&src, b"hello ferr copy test").unwrap();
 
-        let destinations: Vec<Box<dyn Destination>> = vec![Box::new(LocalDest::new(
-            dest_root.clone(),
-        ))];
+        let destinations: Vec<Box<dyn Destination>> =
+            vec![Box::new(LocalDest::new(dest_root.clone()))];
         let hasher = XxHasher;
 
         let result = copy_file(
@@ -340,9 +337,8 @@ mod tests {
         let src_file = src_dir.join("day1").join("clip.mov");
         std::fs::write(&src_file, b"video data").unwrap();
 
-        let destinations: Vec<Box<dyn Destination>> = vec![Box::new(LocalDest::new(
-            dest_root.clone(),
-        ))];
+        let destinations: Vec<Box<dyn Destination>> =
+            vec![Box::new(LocalDest::new(dest_root.clone()))];
         let hasher = XxHasher;
 
         let result = copy_file(
@@ -396,9 +392,8 @@ mod tests {
             }],
         };
 
-        let destinations: Vec<Box<dyn Destination>> = vec![Box::new(LocalDest::new(
-            dest_root.clone(),
-        ))];
+        let destinations: Vec<Box<dyn Destination>> =
+            vec![Box::new(LocalDest::new(dest_root.clone()))];
 
         let result = copy_file(
             &src,

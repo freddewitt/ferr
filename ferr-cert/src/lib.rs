@@ -57,10 +57,20 @@ pub fn pack(manifest: &Manifest) -> Result<String> {
 }
 
 pub fn unpack(cert_data: &str) -> Result<Manifest, CertError> {
-    let lines: Vec<&str> = cert_data.lines().map(|l| l.trim()).filter(|l| !l.is_empty()).collect();
+    let lines: Vec<&str> = cert_data
+        .lines()
+        .map(|l| l.trim())
+        .filter(|l| !l.is_empty())
+        .collect();
 
-    let start_idx = lines.iter().position(|&l| l == CERT_HEADER).ok_or(CertError::MalformedFormat)?;
-    let end_idx = lines.iter().position(|&l| l == CERT_FOOTER).ok_or(CertError::MalformedFormat)?;
+    let start_idx = lines
+        .iter()
+        .position(|&l| l == CERT_HEADER)
+        .ok_or(CertError::MalformedFormat)?;
+    let end_idx = lines
+        .iter()
+        .position(|&l| l == CERT_FOOTER)
+        .ok_or(CertError::MalformedFormat)?;
 
     if start_idx >= end_idx {
         return Err(CertError::MalformedFormat);
@@ -122,7 +132,7 @@ mod tests {
     fn test_pack_unpack() {
         let manifest = sample_manifest();
         let packed = pack(&manifest).unwrap();
-        
+
         assert!(packed.starts_with(CERT_HEADER));
         assert!(packed.ends_with(CERT_FOOTER));
 
@@ -139,9 +149,12 @@ mod tests {
         let b64_index = packed.find("\n").unwrap() + 1;
         let c = packed.chars().nth(b64_index).unwrap();
         let alt_c = if c == 'A' { 'B' } else { 'A' };
-        packed.replace_range(b64_index..b64_index+1, &alt_c.to_string());
+        packed.replace_range(b64_index..b64_index + 1, &alt_c.to_string());
 
         let result = unpack(&packed);
-        assert!(matches!(result, Err(CertError::IntegrityError) | Err(CertError::Base64Error(_))));
+        assert!(matches!(
+            result,
+            Err(CertError::IntegrityError) | Err(CertError::Base64Error(_))
+        ));
     }
 }

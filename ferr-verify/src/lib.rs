@@ -146,10 +146,7 @@ fn collect_files_recursive(dir: &Path, out: &mut Vec<PathBuf>) -> anyhow::Result
 /// Retourne une erreur si `rel` est absolu ou contient `..`.
 fn safe_join(base: &Path, rel: &Path) -> anyhow::Result<PathBuf> {
     if rel.is_absolute() {
-        anyhow::bail!(
-            "Chemin absolu refusé dans le manifest : {}",
-            rel.display()
-        );
+        anyhow::bail!("Chemin absolu refusé dans le manifest : {}", rel.display());
     }
     for component in rel.components() {
         if matches!(component, std::path::Component::ParentDir) {
@@ -552,7 +549,10 @@ mod scan_tests {
             .unwrap()
             .with_timezone(&chrono::Utc);
         let report = scan_bitrot(&base, &manifest, &XxHasher, Some(since), |_| {}).unwrap();
-        assert_eq!(report.skipped, 1, "Le fichier postérieur à since doit être ignoré");
+        assert_eq!(
+            report.skipped, 1,
+            "Le fichier postérieur à since doit être ignoré"
+        );
         assert_eq!(report.scanned, 0);
 
         std::fs::remove_dir_all(&base).ok();

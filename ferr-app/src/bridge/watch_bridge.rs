@@ -1,5 +1,5 @@
-use iced::Subscription;
 use ferr_core::{WatchConfig, WatchEvent};
+use iced::Subscription;
 use std::sync::Arc;
 
 #[derive(Clone)]

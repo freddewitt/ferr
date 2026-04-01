@@ -9,9 +9,7 @@ use std::process::Stdio;
 /// Si le hard link échoue (systèmes de fichiers différents, droits
 /// insuffisants), replie sur une copie du fichier.
 fn link_or_copy(src: &Path, dest: &Path) -> std::io::Result<()> {
-    std::fs::hard_link(src, dest).or_else(|_| {
-        std::fs::copy(src, dest).map(|_| ())
-    })
+    std::fs::hard_link(src, dest).or_else(|_| std::fs::copy(src, dest).map(|_| ()))
 }
 
 // ---------------------------------------------------------------------------
@@ -436,7 +434,6 @@ mod tests {
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("entre 1 et 40"));
     }
-
 
     #[test]
     fn collect_files_excludes_par2_and_manifest() {

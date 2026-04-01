@@ -18,8 +18,11 @@ pub mod dest_card {
     }
 }
 pub mod progress_bar {
-    use iced::{Element, Color};
-    pub fn progress_bar_custom<'a, Message: 'a>(_value: f32, _color: Color) -> Element<'a, Message> {
+    use iced::{Color, Element};
+    pub fn progress_bar_custom<'a, Message: 'a>(
+        _value: f32,
+        _color: Color,
+    ) -> Element<'a, Message> {
         iced::widget::text("Progress...").into()
     }
 }

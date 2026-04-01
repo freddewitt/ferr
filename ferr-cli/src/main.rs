@@ -970,7 +970,10 @@ fn cmd_history(action: HistoryAction) -> anyhow::Result<i32> {
             if sessions.is_empty() {
                 println!("  Aucune session enregistrée.");
             } else {
-                println!("  {:>5}  {:26}  {:>8}  {:>10}  Source", "ID", "Date", "Fichiers", "Taille");
+                println!(
+                    "  {:>5}  {:26}  {:>8}  {:>10}  Source",
+                    "ID", "Date", "Fichiers", "Taille"
+                );
                 let sep = "─".repeat(HISTORY_TABLE_WIDTH);
                 println!("  {sep}");
                 for s in &sessions {
@@ -1038,7 +1041,10 @@ fn print_summary_table(
 ) {
     let sep = "─".repeat(TABLE_WIDTH);
     println!("{sep}");
-    println!("  {:<30}  {:>10}  {:>10}  {:>10}  {:>7}  Statut", "Destination", "Fichiers", "Taille", "Durée", "Erreurs");
+    println!(
+        "  {:<30}  {:>10}  {:>10}  {:>10}  {:>7}  Statut",
+        "Destination", "Fichiers", "Taille", "Durée", "Erreurs"
+    );
     println!("{sep}");
 
     let errors = manifest
@@ -1107,38 +1113,50 @@ fn cmd_cert(action: CertAction) -> anyhow::Result<i32> {
         } => {
             let (hash_algo, _) = hash_choice_to_algo(&hash);
             let bar = make_spinner("Génération du certificat en cours…", quiet);
-            
+
             let manifest = ferr_core::generate_manifest(&src, hash_algo, |_| {})?;
             let cert_data = ferr_cert::pack(&manifest)?;
-            
+
             let out_path = output.unwrap_or_else(|| {
-                let name = src.file_name().unwrap_or_else(|| std::ffi::OsStr::new("cert")).to_string_lossy();
+                let name = src
+                    .file_name()
+                    .unwrap_or_else(|| std::ffi::OsStr::new("cert"))
+                    .to_string_lossy();
                 PathBuf::from(format!("{name}.ferrcert"))
             });
             std::fs::write(&out_path, cert_data)?;
-            
-            if let Some(b) = &bar { b.finish_and_clear(); }
+
+            if let Some(b) = &bar {
+                b.finish_and_clear();
+            }
             if !quiet {
-                println!("  {} Certificat généré : {}", style("✓").green(), out_path.display());
+                println!(
+                    "  {} Certificat généré : {}",
+                    style("✓").green(),
+                    out_path.display()
+                );
             }
             Ok(0)
         }
         CertAction::Verify { cert, dest, quiet } => {
             let bar = make_spinner("Vérification du certificat en cours…", quiet);
             let cert_data = std::fs::read_to_string(&cert)?;
-            
+
             match ferr_cert::unpack(&cert_data) {
                 Ok(manifest) => {
-                    let is_sha256 = manifest.files.first().map(|f| f.hash_algo.as_str()) == Some("sha256");
+                    let is_sha256 =
+                        manifest.files.first().map(|f| f.hash_algo.as_str()) == Some("sha256");
                     let hasher: Box<dyn ferr_hash::Hasher> = if is_sha256 {
                         Box::new(ferr_hash::Sha256Hasher)
                     } else {
                         Box::new(ferr_hash::XxHasher)
                     };
-                    
+
                     let report = ferr_verify::verify_manifest(&manifest, &dest, hasher.as_ref())?;
-                    if let Some(b) = &bar { b.finish_and_clear(); }
-                    
+                    if let Some(b) = &bar {
+                        b.finish_and_clear();
+                    }
+
                     if !quiet {
                         println!(
                             "\n  {} {} ok  {} manquants  {} corrompus",
@@ -1154,14 +1172,25 @@ fn cmd_cert(action: CertAction) -> anyhow::Result<i32> {
                             println!("  {} {}", style("CORROMPU").red(), p.display());
                         }
                         if report.exit_code() == 0 {
-                            println!("  {}", style("Certificat valide et contenu intact ✓").green().bold());
+                            println!(
+                                "  {}",
+                                style("Certificat valide et contenu intact ✓")
+                                    .green()
+                                    .bold()
+                            );
                         }
                     }
                     Ok(report.exit_code())
                 }
                 Err(e) => {
-                    if let Some(b) = &bar { b.finish_and_clear(); }
-                    println!("  {} Le certificat a été altéré ou est invalide : {}", style("✗ Erreur :").red().bold(), e);
+                    if let Some(b) = &bar {
+                        b.finish_and_clear();
+                    }
+                    println!(
+                        "  {} Le certificat a été altéré ou est invalide : {}",
+                        style("✗ Erreur :").red().bold(),
+                        e
+                    );
                     Ok(4)
                 }
             }
