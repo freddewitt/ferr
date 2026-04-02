@@ -34,15 +34,36 @@ Traditional copy tools can fail silently or leave you wondering if your data is 
 ## 🏎️ Quick Start
 
 ### Installation
+
+#### 1. Command-Line Interface (CLI) Only
 ```bash
 # Requires Rust 1.75+
 git clone https://github.com/freddewitt/ferr
 cd ferr
-
-# Install the Command-Line Interface
 cargo install --path ferr-cli
+```
 
-# Run the Desktop GUI
+#### 2. Desktop GUI (`ferr-app`)
+To build the standalone graphical macOS application (`.app`), you must compile the native interface and bundle the CLI as an internal engine:
+
+```bash
+# 1. Build the real rust engine for the app sidecar
+cargo build --release -p ferr-cli
+
+# 2. Copy the built engine to the Tauri binaries folder (Apple Silicon example)
+cp target/release/ferr ferr-app/binaries/ferr-cli-aarch64-apple-darwin
+
+# 3. Install Tauri v2 CLI (if not already installed)
+cargo install tauri-cli --version "^2.0.0"
+
+# 4. Compile the final release bundle
+cd ferr-app
+cargo tauri build
+# Your standalone app will be at: target/release/bundle/macos/ferr.app
+```
+
+To run the application in "Live Development" mode instead:
+```bash
 cd ferr-app
 cargo tauri dev
 ```
