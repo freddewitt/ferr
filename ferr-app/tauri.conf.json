@@ -1,0 +1,37 @@
+{
+  "$schema": "https://schemas.tauri.app/core/schema/config/v2/schema.json",
+  "productName": "ferr",
+  "version": "0.1.0",
+  "identifier": "com.ferr.app",
+  "build": {
+    "frontendDist": "ui"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "title": "ferr",
+        "width": 640,
+        "height": 650,
+        "minWidth": 580,
+        "minHeight": 580,
+        "resizable": true,
+        "decorations": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": ["icons/icon.png"],
+    "externalBin": ["binaries/ferr-cli"]
+  },
+  "plugins": {
+    "shell": {
+      "open": false
+    }
+  }
+}

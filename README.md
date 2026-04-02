@@ -1,6 +1,6 @@
 <div align="center">
   <h1>ferr</h1>
-  <p><strong>Secure, Byte-for-Byte CLI File Copy Tool for DITs & Power Users</strong></p>
+  <p><strong>Secure, Byte-for-Byte File Copy Tool for DITs & Power Users (Desktop GUI + CLI)</strong></p>
 
   [![CI](https://github.com/freddewitt/ferr/actions/workflows/ci.yml/badge.svg)](https://github.com/freddewitt/ferr/actions/workflows/ci.yml)
   [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -16,7 +16,7 @@
 
 ---
 
-**ferr** is a high-performance command-line utility designed for **absolute data integrity**. Whether you're a Digital Imaging Technician (DIT) managing 8K cinema footage or a power user moving critical backups, `ferr` ensures every byte is accounted for through cryptographic verification and hardware-accelerated redundancy.
+**ferr** is a high-performance utility designed for **absolute data integrity**. Whether you're a Digital Imaging Technician (DIT) managing 8K cinema footage or a power user moving critical backups, `ferr` ensures every byte is accounted for through cryptographic verification and hardware-accelerated redundancy. Available as both a **sleek Desktop GUI application** and a scriptable **Command-Line Interface**.
 
 ## 🚀 Why use `ferr`?
 
@@ -25,6 +25,7 @@ Traditional copy tools can fail silently or leave you wondering if your data is 
 - 🛡️ **Zero-Trust Copying**: Every file is hashed on-the-fly (`XXH64` or `SHA-256`).
 - ⚡ **Multi-Destination**: Copy from one source to up to 3 destinations simultaneously.
 - 🏗️ **Self-Healing Data**: Native `par2` support—if a bit flips on your drive, `ferr` can repair it.
+- 🖥️ **Sleek Desktop GUI**: A beautifully designed, multilingual macOS app built with Tauri v2.
 - 💾 **Smart History**: Powered by a local SQLite database to prevent duplicate copies.
 - 📽️ **Cinema-Ready**: Automatic detection of BRAW, R3D, ARRI, Sony, and more.
 
@@ -37,7 +38,13 @@ Traditional copy tools can fail silently or leave you wondering if your data is 
 # Requires Rust 1.75+
 git clone https://github.com/freddewitt/ferr
 cd ferr
+
+# Install the Command-Line Interface
 cargo install --path ferr-cli
+
+# Run the Desktop GUI
+cd ferr-app
+cargo tauri dev
 ```
 
 ### Basic Usage
@@ -80,6 +87,8 @@ ferr watch /Volumes --dest /mnt/backups --profile onset
 
 | Component | Responsibility |
 | :--- | :--- |
+| **`ferr-app`** | Desktop GUI built with Tauri v2, HTML/JS/CSS. |
+| **`ferr-cli`** | The main entrypoint for the command-line utility. |
 | **`ferr-core`** | Orchestration, dry-runs, and job logic. |
 | **`ferr-cert`** | Portable PEM-encoded integrity certificates. |
 | **`ferr-par2`** | Native PAR2 verification and repair engine. |

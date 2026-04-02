@@ -1,25 +1,36 @@
-// ferr-app est un crate GUI en cours de développement.
-// Les constantes de thème et les champs d'état sont définis par avance
-// pour l'interface à venir — les warnings dead_code sont attendus.
-#![allow(dead_code)]
-
-mod app;
 mod bridge;
-mod state;
-mod theme;
-mod ui;
+mod commands;
+mod progress;
+mod volume;
 
-use app::FerrApp;
-use iced::{application, window, Size};
-
-fn main() -> iced::Result {
-    application("ferr", FerrApp::update, FerrApp::view)
-        .subscription(FerrApp::subscription)
-        .theme(|_| iced::Theme::Dark)
-        .window(window::Settings {
-            size: Size::new(900.0, 600.0),
-            min_size: Some(Size::new(800.0, 500.0)),
-            ..Default::default()
-        })
-        .run_with(FerrApp::new)
+fn main() {
+    tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_store::Builder::default().build())
+        .plugin(tauri_plugin_notification::init())
+        .invoke_handler(tauri::generate_handler![
+            commands::run_copy,
+            commands::run_copy_preview,
+            commands::run_watch_start,
+            commands::run_watch_stop,
+            commands::run_scan,
+            commands::run_verify,
+            commands::run_repair,
+            commands::run_cert_create,
+            commands::run_cert_verify,
+            commands::run_export,
+            commands::run_report,
+            commands::get_history,
+            commands::search_history,
+            commands::get_profiles,
+            commands::save_profile,
+            commands::get_volumes,
+            commands::pick_folder,
+            commands::pick_file,
+            commands::pick_save_location,
+            commands::quit_app,
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running ferr-app");
 }

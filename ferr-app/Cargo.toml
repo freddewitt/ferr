@@ -1,24 +1,27 @@
+[workspace]
+resolver = "2"
+
 [package]
-name = "ferr-app"
+name    = "ferr-app"
 version = "0.1.0"
 edition = "2021"
-authors = ["Frederick <frederick@example.com>"]
-description = "Secure GUI file copy tool designed for DITs."
-license = "MIT"
+description = "ferr — desktop GUI (Tauri v2)"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
 
 [dependencies]
-ferr-core = { path = "../ferr-core" }
-ferr-report = { path = "../ferr-report" }
-ferr-session = { path = "../ferr-session" }
-ferr-verify = { path = "../ferr-verify" }
-ferr-camera = { path = "../ferr-camera" }
-ferr-par2 = { path = "../ferr-par2" }
+tauri                     = { version = "2", features = [] }
+tauri-plugin-dialog       = "2"
+tauri-plugin-shell        = "2"
+tauri-plugin-store        = "2"
+tauri-plugin-notification = "2"
+serde                     = { version = "1", features = ["derive"] }
+serde_json                = "1"
+tokio                     = { version = "1", features = ["rt", "rt-multi-thread", "macros"] }
 
-iced = { version = "0.13", features = ["tokio", "image", "svg"] }
-tokio = { version = "1", features = ["full"] }
-rfd = "0.14"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-chrono = "0.4"
-dirs = "5"
-anyhow = "1"
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.52", features = ["Win32_Storage_FileSystem", "Win32_Foundation"] }

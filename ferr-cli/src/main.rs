@@ -77,6 +77,9 @@ enum Commands {
         dry_run: bool,
         #[arg(long)]
         quiet: bool,
+        /// Format de sortie de la progression : "human" (défaut) ou "machine"
+        #[arg(long, value_name = "FORMAT", default_value = "human")]
+        progress_format: String,
     },
     /// Vérifie l'intégrité des fichiers
     Verify {
@@ -266,6 +269,7 @@ fn run(cli: Cli) -> anyhow::Result<i32> {
             no_pdf,
             dry_run,
             quiet,
+            progress_format,
         } => cmd_copy(CopyArgs {
             src,
             dest,
@@ -284,6 +288,7 @@ fn run(cli: Cli) -> anyhow::Result<i32> {
             no_pdf,
             dry_run,
             quiet,
+            progress_format,
         }),
         Commands::Verify {
             src_or_manifest,
@@ -417,6 +422,7 @@ struct CopyArgs {
     no_pdf: bool,
     dry_run: bool,
     quiet: bool,
+    progress_format: String,
 }
 
 fn cmd_copy(args: CopyArgs) -> anyhow::Result<i32> {
@@ -438,7 +444,9 @@ fn cmd_copy(args: CopyArgs) -> anyhow::Result<i32> {
         no_pdf,
         dry_run: dry_run_flag,
         quiet,
+        progress_format,
     } = args;
+    let machine_mode = progress_format == "machine";
     let mut destinations = vec![dest];
     if let Some(d) = dest2 {
         destinations.push(d);
@@ -520,104 +528,152 @@ fn cmd_copy(args: CopyArgs) -> anyhow::Result<i32> {
         return Ok(0);
     }
 
-    // Mode normal
-    let mp = MultiProgress::new();
-    let global_bar = mp.add(ProgressBar::new(0));
-    global_bar.set_style(
-        ProgressStyle::with_template(
-            "{spinner:.cyan} [{elapsed_precise}] {pos}/{len} fichiers  {bytes} copiés  {binary_bytes_per_sec}  ETA {eta}",
-        )
-        .unwrap()
-        .progress_chars("=>-"),
-    );
-
-    let file_bar = mp.add(ProgressBar::new(0));
-    file_bar.set_style(
-        ProgressStyle::with_template(
-            "{spinner:.green} {wide_msg:.40} {bar:30.green/white} {bytes}/{total_bytes} {percent:>3}%",
-        )
-        .unwrap()
-        .progress_chars("█▉▊▋▌▍▎▏  "),
-    );
-
     use std::sync::atomic::{AtomicUsize, Ordering};
-    let file_count = Arc::new(AtomicUsize::new(0));
     let copy_start = Instant::now();
 
-    let on_progress = {
-        let global_bar = global_bar.clone();
-        let file_bar = file_bar.clone();
-        let file_count = Arc::clone(&file_count);
-        move |p: ferr_core::CopyProgress| {
-            if quiet {
-                return;
+    if machine_mode {
+        // ── Mode machine-readable ──────────────────────────────────────────
+        // Émet des lignes parsables par la GUI sur stdout.
+        let file_count = Arc::new(AtomicUsize::new(0));
+        let on_progress = {
+            let file_count = Arc::clone(&file_count);
+            move |p: ferr_core::CopyProgress| {
+                if matches!(p.phase, ferr_core::CopyPhase::Done) {
+                    return; // COMPLETE sera émis après run_copy
+                }
+                let name = p.current_file.to_string_lossy();
+                let files_done = p.total_files_done;
+                if files_done > file_count.load(Ordering::Relaxed) {
+                    file_count.store(files_done, Ordering::Relaxed);
+                }
+                println!(
+                    "PROGRESS:{}/{}|{}/{}|{}|{}",
+                    p.file_bytes_done,
+                    p.file_bytes_total,
+                    files_done,
+                    p.total_files,
+                    p.speed_bytes_sec,
+                    name,
+                );
             }
-            let phase_label = match p.phase {
-                ferr_core::CopyPhase::Copying => "[Copie]",
-                ferr_core::CopyPhase::Verifying => "[Vérif]",
-                ferr_core::CopyPhase::GeneratingPar2 => "[PAR2]",
-                ferr_core::CopyPhase::Done => "[Terminé]",
-            };
-            match p.phase {
-                ferr_core::CopyPhase::Done => {
-                    file_bar.finish_and_clear();
-                    global_bar.finish_with_message("Terminé ✓");
-                }
-                ferr_core::CopyPhase::GeneratingPar2 => {
-                    file_bar.set_message("[PAR2] génération…");
-                }
-                _ => {
-                    let name = p
-                        .current_file
-                        .file_name()
-                        .map(|n| n.to_string_lossy().into_owned())
-                        .unwrap_or_default();
-                    let trunc = if name.len() > FILE_NAME_DISPLAY_MAX {
-                        format!("…{}", &name[name.len() - (FILE_NAME_DISPLAY_MAX - 1)..])
-                    } else {
-                        name
-                    };
+        };
 
-                    file_bar.set_length(p.file_bytes_total);
-                    file_bar.set_position(p.file_bytes_done);
-                    file_bar.set_message(format!("{phase_label} {trunc}"));
-                    global_bar.set_length(p.total_files as u64);
-                    let done = file_count.load(Ordering::Relaxed);
-                    if p.total_files_done > done {
-                        file_count.store(p.total_files_done, Ordering::Relaxed);
-                        global_bar.set_position(p.total_files_done as u64);
+        let manifest = ferr_core::run_copy(job, on_progress, &hooks)?;
+
+        let errors = manifest
+            .files
+            .iter()
+            .filter(|f| matches!(f.status, ferr_report::FileStatus::Corrupted))
+            .count();
+        let manifest_path = destinations
+            .first()
+            .and_then(|d| ferr_core::find_manifest_path(d))
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_default();
+
+        println!(
+            "COMPLETE:{}|{}|{}|{}",
+            manifest.total_files,
+            manifest.total_size_bytes,
+            errors,
+            manifest_path,
+        );
+    } else {
+        // ── Mode human (indicatif) ─────────────────────────────────────────
+        let mp = MultiProgress::new();
+        let global_bar = mp.add(ProgressBar::new(0));
+        global_bar.set_style(
+            ProgressStyle::with_template(
+                "{spinner:.cyan} [{elapsed_precise}] {pos}/{len} fichiers  {bytes} copiés  {binary_bytes_per_sec}  ETA {eta}",
+            )
+            .unwrap()
+            .progress_chars("=>-"),
+        );
+
+        let file_bar = mp.add(ProgressBar::new(0));
+        file_bar.set_style(
+            ProgressStyle::with_template(
+                "{spinner:.green} {wide_msg:.40} {bar:30.green/white} {bytes}/{total_bytes} {percent:>3}%",
+            )
+            .unwrap()
+            .progress_chars("█▉▊▋▌▍▎▏  "),
+        );
+
+        let file_count = Arc::new(AtomicUsize::new(0));
+
+        let on_progress = {
+            let global_bar = global_bar.clone();
+            let file_bar = file_bar.clone();
+            let file_count = Arc::clone(&file_count);
+            move |p: ferr_core::CopyProgress| {
+                if quiet {
+                    return;
+                }
+                let phase_label = match p.phase {
+                    ferr_core::CopyPhase::Copying => "[Copie]",
+                    ferr_core::CopyPhase::Verifying => "[Vérif]",
+                    ferr_core::CopyPhase::GeneratingPar2 => "[PAR2]",
+                    ferr_core::CopyPhase::Done => "[Terminé]",
+                };
+                match p.phase {
+                    ferr_core::CopyPhase::Done => {
+                        file_bar.finish_and_clear();
+                        global_bar.finish_with_message("Terminé ✓");
+                    }
+                    ferr_core::CopyPhase::GeneratingPar2 => {
+                        file_bar.set_message("[PAR2] génération…");
+                    }
+                    _ => {
+                        let name = p
+                            .current_file
+                            .file_name()
+                            .map(|n| n.to_string_lossy().into_owned())
+                            .unwrap_or_default();
+                        let trunc = if name.len() > FILE_NAME_DISPLAY_MAX {
+                            format!("…{}", &name[name.len() - (FILE_NAME_DISPLAY_MAX - 1)..])
+                        } else {
+                            name
+                        };
+                        file_bar.set_length(p.file_bytes_total);
+                        file_bar.set_position(p.file_bytes_done);
+                        file_bar.set_message(format!("{phase_label} {trunc}"));
+                        global_bar.set_length(p.total_files as u64);
+                        let done = file_count.load(Ordering::Relaxed);
+                        if p.total_files_done > done {
+                            file_count.store(p.total_files_done, Ordering::Relaxed);
+                            global_bar.set_position(p.total_files_done as u64);
+                        }
                     }
                 }
             }
-        }
-    };
+        };
 
-    let manifest = ferr_core::run_copy(job, on_progress, &hooks)?;
-    if !quiet {
-        mp.clear()?;
-    }
-
-    // Résumé hash par fichier
-    if !quiet {
-        println!();
-        for entry in &manifest.files {
-            let icon = match entry.status {
-                ferr_report::FileStatus::Ok => style("✓").green().bold(),
-                ferr_report::FileStatus::Skipped => style("↩").cyan().bold(),
-                ferr_report::FileStatus::Corrupted => style("✗").red().bold(),
-                ferr_report::FileStatus::Missing => style("?").yellow().bold(),
-            };
-            let hash_preview = &entry.hash[..entry.hash.len().min(16)];
-            println!(
-                "  {} {}  [{}] {}",
-                icon,
-                entry.path,
-                style(&entry.hash_algo).dim(),
-                style(hash_preview).dim()
-            );
+        let manifest = ferr_core::run_copy(job, on_progress, &hooks)?;
+        if !quiet {
+            mp.clear()?;
         }
-        println!();
-        print_summary_table(&manifest, &destinations, copy_start.elapsed(), par2);
+
+        if !quiet {
+            println!();
+            for entry in &manifest.files {
+                let icon = match entry.status {
+                    ferr_report::FileStatus::Ok => style("✓").green().bold(),
+                    ferr_report::FileStatus::Skipped => style("↩").cyan().bold(),
+                    ferr_report::FileStatus::Corrupted => style("✗").red().bold(),
+                    ferr_report::FileStatus::Missing => style("?").yellow().bold(),
+                };
+                let hash_preview = &entry.hash[..entry.hash.len().min(16)];
+                println!(
+                    "  {} {}  [{}] {}",
+                    icon,
+                    entry.path,
+                    style(&entry.hash_algo).dim(),
+                    style(hash_preview).dim()
+                );
+            }
+            println!();
+            print_summary_table(&manifest, &destinations, copy_start.elapsed(), par2);
+        }
     }
 
     Ok(0)

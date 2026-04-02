@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ferr</title>
+    <link rel="stylesheet" href="css/main.css">
+    <link rel="stylesheet" href="css/sidebar.css">
+    <link rel="stylesheet" href="css/components.css">
+    <link rel="stylesheet" href="css/tabs.css">
+</head>
+<body>
+    <div id="app">
+        <nav id="sidebar"></nav>
+        <div id="workspace">
+            <header id="topbar"></header>
+            <main id="tab-content"></main>
+            <footer id="bottombar"></footer>
+        </div>
+    </div>
+
+    <!-- Overlay -->
+    <div id="progress-overlay" class="hidden"></div>
+
+    <!-- Utils (no dependencies) -->
+    <script src="js/utils/format.js"></script>
+    <script src="js/utils/i18n.js"></script>
+    <script src="js/utils/settings.js"></script>
+
+    <!-- Tauri bridge (depends on window.__TAURI__) -->
+    <script src="js/bridge.js"></script>
+
+    <!-- Components (depend on bridge + utils) -->
+    <script src="js/components/dropzone.js"></script>
+    <script src="js/components/progress.js"></script>
+    <script src="js/components/pills.js"></script>
+    <script src="js/components/healthcard.js"></script>
+
+    <!-- Tabs (depend on bridge + components) -->
+    <script src="js/tabs/copy.js"></script>
+    <script src="js/tabs/watch.js"></script>
+    <script src="js/tabs/health.js"></script>
+    <script src="js/tabs/history.js"></script>
+    <script src="js/tabs/settings.js"></script>
+
+    <!-- App (depends on everything above) -->
+    <script src="js/app.js"></script>
+</body>
+</html>
