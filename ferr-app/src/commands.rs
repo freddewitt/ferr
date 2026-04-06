@@ -81,7 +81,12 @@ fn build_copy_args(
     extra: &[String],
     _resume: bool,
 ) -> Vec<String> {
-    let mut args = vec!["copy".to_string(), source.to_string()];
+    // Flags MUST come before positional args for Clap to accept them
+    let mut args = vec!["copy".to_string()];
+    args.extend_from_slice(extra);
+    args.extend(["--progress-format".into(), "machine".into()]);
+    // Positional args last
+    args.push(source.to_string());
     if let Some(d) = destinations.first() {
         args.push(d.clone());
     }
@@ -91,8 +96,6 @@ fn build_copy_args(
     if destinations.len() > 2 {
         args.extend(["--dest3".into(), destinations[2].clone()]);
     }
-    args.extend_from_slice(extra);
-    args.extend(["--progress-format".into(), "machine".into()]);
     args
 }
 
