@@ -172,28 +172,36 @@ const HealthTab = (() => {
 
     // ── Repair ─────────────────────────────────────────────────────────────
     function _renderRepairPanel(panel) {
+        let zones = {};
         panel.innerHTML = `
             <div class="health-panel">
                 <div class="health-panel-title">${t('repair')}</div>
                 <div class="health-warning">
                     ${t('repair_warning')}
                 </div>
+                <div id="repair-par2-zone" style="margin-bottom:8px;"></div>
                 <div id="repair-folder-zone" style="margin-bottom:12px;"></div>
             </div>
         `;
 
-        const zone = new DropZone(
+        zones.par2 = new DropZone(
+            document.getElementById('repair-par2-zone'),
+            { label: t('par2_index_file') || 'PAR2 Index File', accept: 'file', ext: ['par2'] }
+        );
+
+        zones.folder = new DropZone(
             document.getElementById('repair-folder-zone'),
             { label: t('select_repair_folder'), accept: 'folder' }
         );
 
         App.setBottomBarAction(t('repair_btn'), async () => {
-            const folder = zone.getPath();
-            if (!folder) return App.flash(t('select_folder_first'));
+            const par2Index = zones.par2?.getPath();
+            const folder = zones.folder?.getPath();
+            if (!par2Index || !folder) return App.flash(t('select_folder_first'));
             if (!confirm(t('repair_confirm'))) return;
             Progress.show(t('repairing'));
             try {
-                await Bridge.runRepair(folder);
+                await Bridge.runRepair(par2Index, folder);
             } finally {
                 Progress.hide();
             }

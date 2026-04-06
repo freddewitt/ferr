@@ -175,8 +175,8 @@ pub async fn run_verify(
 }
 
 #[tauri::command]
-pub async fn run_repair(app: tauri::AppHandle, folder: String) -> Result<(), String> {
-    let args = vec!["repair".to_string(), folder];
+pub async fn run_repair(app: tauri::AppHandle, par2_index: String, target_folder: String) -> Result<(), String> {
+    let args = vec!["repair".to_string(), par2_index, target_folder];
     spawn_and_drain(&app, args).await
 }
 

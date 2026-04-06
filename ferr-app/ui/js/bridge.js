@@ -119,9 +119,9 @@ const Bridge = (() => {
             ? new Promise(r => { setTimeout(() => { _progressCb?.('VERIFY_RESULT:OK|47|0|0'); _completeCb?.(0); r(); }, 1200); })
             : invoke('run_verify', { sourceOrManifest: srcOrManifest, dest }),
 
-        runRepair: (folder) => DEV_MODE
+        runRepair: (par2Index, targetFolder) => DEV_MODE
             ? new Promise(r => { setTimeout(() => { _completeCb?.(0); r(); }, 800); })
-            : invoke('run_repair', { folder }),
+            : invoke('run_repair', { par2Index, targetFolder }),
 
         certCreate: (folder, out) => DEV_MODE
             ? new Promise(r => { setTimeout(() => { _completeCb?.(0); r(); }, 600); })
