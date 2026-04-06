@@ -541,6 +541,19 @@ pub fn run_copy(
 
     let (src_root, src_files) = resolve_source(&job.source)?;
     let total_files = src_files.len();
+
+    // Create empty subdirectories at all destinations
+    if job.source.is_dir() {
+        let mut empty_dirs = Vec::new();
+        collect_empty_dirs(&job.source, &mut empty_dirs).unwrap_or(());
+        for empty_dir in &empty_dirs {
+            let rel = empty_dir.strip_prefix(&src_root).unwrap_or(empty_dir);
+            for dest_path in &job.destinations {
+                let target = dest_path.join(rel);
+                std::fs::create_dir_all(&target).ok();
+            }
+        }
+    }
     let mut file_entries: Vec<ferr_report::FileEntry> = Vec::new();
     let mut total_size_bytes = 0u64;
     let mut errors = 0usize;
@@ -798,13 +811,24 @@ fn resolve_source(path: &Path) -> anyhow::Result<(PathBuf, Vec<PathBuf>)> {
     Ok((root, files))
 }
 
+/// Returns true for macOS/system noise files that should never be copied or hashed.
+fn is_system_noise(name: &str) -> bool {
+    matches!(name,
+        ".DS_Store" | ".localized" | ".Spotlight-V100" | ".fseventsd"
+        | ".Trashes" | ".TemporaryItems" | "Thumbs.db" | "desktop.ini"
+        | ".AppleDouble" | ".AppleDB" | ".AppleDesktop"
+    ) || name.starts_with("._")  // AppleDouble resource forks
+}
+
 fn collect_recursive(dir: &Path, out: &mut Vec<PathBuf>) -> anyhow::Result<()> {
     for entry in std::fs::read_dir(dir)? {
         let entry = entry?;
         let path = entry.path();
         if let Some(name) = path.file_name() {
             let n = name.to_string_lossy();
-            if n == "ferr-manifest.json" || n == "_par2" || n.starts_with("_ferr_logs_") {
+            if n == "ferr-manifest.json" || n == "_par2" || n.starts_with("_ferr_logs_")
+                || is_system_noise(&n)
+            {
                 continue;
             }
         }
@@ -813,6 +837,30 @@ fn collect_recursive(dir: &Path, out: &mut Vec<PathBuf>) -> anyhow::Result<()> {
         } else {
             out.push(path);
         }
+    }
+    Ok(())
+}
+
+/// Collect all empty subdirectories under `dir` recursively.
+fn collect_empty_dirs(dir: &Path, out: &mut Vec<PathBuf>) -> anyhow::Result<()> {
+    let mut has_children = false;
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        // Skip ferr internal entries
+        if let Some(name) = path.file_name() {
+            let n = name.to_string_lossy();
+            if n == "ferr-manifest.json" || n == "_par2" || n.starts_with("_ferr_logs_") {
+                continue;
+            }
+        }
+        has_children = true;
+        if path.is_dir() {
+            collect_empty_dirs(&path, out)?;
+        }
+    }
+    if !has_children {
+        out.push(dir.to_path_buf());
     }
     Ok(())
 }

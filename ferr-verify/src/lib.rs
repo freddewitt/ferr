@@ -142,10 +142,23 @@ fn resolve_source(path: &Path) -> anyhow::Result<(PathBuf, Vec<PathBuf>)> {
     Ok((path.to_path_buf(), files))
 }
 
+fn is_system_noise(name: &str) -> bool {
+    matches!(name,
+        ".DS_Store" | ".localized" | ".Spotlight-V100" | ".fseventsd"
+        | ".Trashes" | ".TemporaryItems" | "Thumbs.db" | "desktop.ini"
+        | ".AppleDouble" | ".AppleDB" | ".AppleDesktop"
+    ) || name.starts_with("._")
+}
+
 fn collect_recursive(dir: &Path, out: &mut Vec<PathBuf>) -> anyhow::Result<()> {
     for entry in std::fs::read_dir(dir)? {
         let entry = entry?;
         let path = entry.path();
+        if let Some(name) = path.file_name() {
+            if is_system_noise(&name.to_string_lossy()) {
+                continue;
+            }
+        }
         if path.is_dir() {
             collect_recursive(&path, out)?;
         } else {
