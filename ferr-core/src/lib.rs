@@ -980,7 +980,10 @@ pub fn generate_manifest(
         HashAlgo::Sha256 => Box::new(ferr_hash::Sha256Hasher),
     };
 
-    let (src_root, src_files) = resolve_source(source)?;
+    let (mut src_root, src_files) = resolve_source(source)?;
+    if source.is_dir() {
+        src_root = source.to_path_buf();
+    }
     let total_files = src_files.len();
     let mut file_entries: Vec<ferr_report::FileEntry> = Vec::new();
     let mut total_size_bytes = 0u64;
