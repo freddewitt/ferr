@@ -51,7 +51,13 @@ pub fn verify_dirs(
     let start = Instant::now();
     let mut report = VerifyReport::default();
 
-    let (src_root, src_files) = resolve_source(src)?;
+    // For verify_dirs: the two folders are equivalent — use the dir itself as
+    // root so relative paths are just filenames, without the folder name prefix.
+    // e.g. verify_dirs(source/test, cible/test) → checks cible/test/file.ext
+    let (_, src_files) = resolve_source(src)?;
+    let src_root = if src.is_dir() { src.to_path_buf() } else {
+        src.parent().unwrap_or(src).to_path_buf()
+    };
 
     for src_file in &src_files {
         let rel = src_file.strip_prefix(&src_root)?;
