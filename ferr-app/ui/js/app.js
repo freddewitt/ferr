@@ -235,8 +235,9 @@ const App = (() => {
         }
         if (s.ejectAfterCopy) args.push('--eject');
         if (!s.preserveMetadata) args.push('--no-preserve-meta');
-        if (!s.pdfReport) args.push('--no-pdf');
+        if (s.pdfReport) args.push('--pdf');   // opt-in flag, not --no-pdf
         if (!s.notifications) args.push('--no-notify');
+        args.push('--report');  // always generate the JSON manifest
         return args;
     }
 
