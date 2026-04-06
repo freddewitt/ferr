@@ -783,19 +783,21 @@ pub fn run_copy(
 // ---------------------------------------------------------------------------
 
 /// Retourne `(racine, fichiers)`.
-/// Fichier  → racine = parent,        fichiers = [path]         → dest/fichier.ext
-/// Dossier  → racine = parent(path),  fichiers = contenu récursif → dest/dossier/...
+/// Fichier  → racine = parent,  fichiers = [path]           → dest/fichier.ext
+/// Dossier  → racine = path,    fichiers = contenu récursif → dest/fichier.ext
 fn resolve_source(path: &Path) -> anyhow::Result<(PathBuf, Vec<PathBuf>)> {
-    let root = path.parent()
-        .ok_or_else(|| anyhow::anyhow!("Unable to determine parent of {}", path.display()))?
-        .to_path_buf();
     if path.is_file() {
+        let root = path.parent()
+            .ok_or_else(|| anyhow::anyhow!("Unable to determine parent of {}", path.display()))?
+            .to_path_buf();
         return Ok((root, vec![path.to_path_buf()]));
     }
+    // For a directory: use the directory itself as root so relative paths
+    // don't include the folder name prefix.
     let mut files = Vec::new();
     collect_recursive(path, &mut files)?;
     files.sort();
-    Ok((root, files))
+    Ok((path.to_path_buf(), files))
 }
 
 fn collect_recursive(dir: &Path, out: &mut Vec<PathBuf>) -> anyhow::Result<()> {
@@ -980,10 +982,7 @@ pub fn generate_manifest(
         HashAlgo::Sha256 => Box::new(ferr_hash::Sha256Hasher),
     };
 
-    let (mut src_root, src_files) = resolve_source(source)?;
-    if source.is_dir() {
-        src_root = source.to_path_buf();
-    }
+    let (src_root, src_files) = resolve_source(source)?;
     let total_files = src_files.len();
     let mut file_entries: Vec<ferr_report::FileEntry> = Vec::new();
     let mut total_size_bytes = 0u64;
