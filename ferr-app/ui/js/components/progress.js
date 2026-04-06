@@ -38,7 +38,7 @@ const Progress = (() => {
     let _buffer = '';
 
     function update(chunk) {
-        _buffer += chunk;
+        _buffer += chunk + '\n';
         const lines = _buffer.split('\n');
         _buffer = lines.pop() || '';
 
@@ -46,21 +46,21 @@ const Progress = (() => {
             const ev = parseLine(line.trim());
             if (!ev) continue;
 
-            if (ev.type === 'PROGRESS') {
-            const pct = ev.totalBytes ? (ev.bytes / ev.totalBytes * 100).toFixed(1) : 0;
-            _set('prog-bar', el => el.style.width = pct + '%');
-            _set('prog-filename', el => el.textContent = ev.filename);
-            _set('prog-files', el => el.textContent = `${ev.files}/${ev.totalFiles} files`);
-            _set('prog-bytes', el => el.textContent = Fmt.bytes(ev.bytes));
-            _set('prog-speed', el => el.textContent = ev.speed);
-        }
+                if (ev.type === 'PROGRESS') {
+                const pct = ev.totalBytes ? (ev.bytes / ev.totalBytes * 100).toFixed(1) : 0;
+                _set('prog-bar', el => el.style.width = pct + '%');
+                _set('prog-filename', el => el.textContent = ev.filename);
+                _set('prog-files', el => el.textContent = `${ev.files}/${ev.totalFiles} files`);
+                _set('prog-bytes', el => el.textContent = Fmt.bytes(ev.bytes));
+                _set('prog-speed', el => el.textContent = Fmt.speed(Number(ev.speed) || ev.speed));
+            }
 
-        if (ev.type === 'SCAN_PROGRESS') {
-            const pct = ev.total ? (ev.scanned / ev.total * 100).toFixed(1) : 0;
-            _set('prog-bar', el => el.style.width = pct + '%');
-            _set('prog-filename', el => el.textContent = ev.file);
-            _set('prog-files', el => el.textContent = `${ev.scanned}/${ev.total} files`);
-        }
+            if (ev.type === 'SCAN_PROGRESS') {
+                const pct = ev.total ? (ev.scanned / ev.total * 100).toFixed(1) : 0;
+                _set('prog-bar', el => el.style.width = pct + '%');
+                _set('prog-filename', el => el.textContent = ev.file);
+                _set('prog-files', el => el.textContent = `${ev.scanned}/${ev.total} files`);
+            }
 
             if (ev.type === 'COMPLETE') {
                 _set('prog-bar', el => el.style.width = '100%');

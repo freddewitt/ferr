@@ -7,16 +7,16 @@
 /// Ne panique jamais — les erreurs de notification sont ignorées silencieusement.
 pub fn notify_done(title: &str, message: &str, success: bool) -> anyhow::Result<()> {
     let subtitle = if success {
-        "✓ Succès"
+        "✓ Success"
     } else {
-        "⚠ Terminé avec erreurs"
+        "⚠ Completed with errors"
     };
     send_notification(title, subtitle, message)
 }
 
 /// Envoie une notification système d'erreur.
 pub fn notify_error(title: &str, error: &str) -> anyhow::Result<()> {
-    send_notification(title, "✗ Erreur", error)
+    send_notification(title, "✗ Error", error)
 }
 
 fn send_notification(title: &str, subtitle: &str, body: &str) -> anyhow::Result<()> {
@@ -29,7 +29,7 @@ fn send_notification(title: &str, subtitle: &str, body: &str) -> anyhow::Result<
 
     // Les erreurs de notification ne sont pas fatales
     if let Err(e) = result {
-        tracing::warn!("notification non envoyée : {e}");
+        tracing::warn!("notification not sent: {e}");
     }
     Ok(())
 }
@@ -41,11 +41,11 @@ mod tests {
     #[test]
     fn notify_done_does_not_panic() {
         // Ne peut pas vérifier que la notification est reçue, mais ne doit pas paniquer
-        let _ = notify_done("ferr test", "Copie terminée", true);
+        let _ = notify_done("ferr test", "Copy completed", true);
     }
 
     #[test]
     fn notify_error_does_not_panic() {
-        let _ = notify_error("ferr test", "Erreur simulée pour test");
+        let _ = notify_error("ferr test", "Simulated error for testing");
     }
 }

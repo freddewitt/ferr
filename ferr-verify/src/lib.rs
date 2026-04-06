@@ -51,10 +51,10 @@ pub fn verify_dirs(
     let start = Instant::now();
     let mut report = VerifyReport::default();
 
-    let src_files = collect_files(src)?;
+    let (src_root, src_files) = resolve_source(src)?;
 
     for src_file in &src_files {
-        let rel = src_file.strip_prefix(src)?;
+        let rel = src_file.strip_prefix(&src_root)?;
         let dest_file = dest.join(rel);
 
         if !dest_file.exists() {
@@ -118,20 +118,28 @@ pub fn verify_manifest(
 // Utilitaires
 // ---------------------------------------------------------------------------
 
-/// Parcourt récursivement un dossier et retourne tous les fichiers.
-fn collect_files(dir: &Path) -> anyhow::Result<Vec<PathBuf>> {
+/// Retourne `(racine, fichiers)`.
+/// Fichier  → racine = parent,        fichiers = [path]          → dest/fichier.ext
+/// Dossier  → racine = parent(path),  fichiers = contenu récursif → dest/dossier/...
+fn resolve_source(path: &Path) -> anyhow::Result<(PathBuf, Vec<PathBuf>)> {
+    let root = path.parent()
+        .ok_or_else(|| anyhow::anyhow!("Unable to determine parent of {}", path.display()))?
+        .to_path_buf();
+    if path.is_file() {
+        return Ok((root, vec![path.to_path_buf()]));
+    }
     let mut files = Vec::new();
-    collect_files_recursive(dir, &mut files)?;
+    collect_recursive(path, &mut files)?;
     files.sort();
-    Ok(files)
+    Ok((root, files))
 }
 
-fn collect_files_recursive(dir: &Path, out: &mut Vec<PathBuf>) -> anyhow::Result<()> {
+fn collect_recursive(dir: &Path, out: &mut Vec<PathBuf>) -> anyhow::Result<()> {
     for entry in std::fs::read_dir(dir)? {
         let entry = entry?;
         let path = entry.path();
         if path.is_dir() {
-            collect_files_recursive(&path, out)?;
+            collect_recursive(&path, out)?;
         } else {
             out.push(path);
         }
@@ -146,12 +154,12 @@ fn collect_files_recursive(dir: &Path, out: &mut Vec<PathBuf>) -> anyhow::Result
 /// Retourne une erreur si `rel` est absolu ou contient `..`.
 fn safe_join(base: &Path, rel: &Path) -> anyhow::Result<PathBuf> {
     if rel.is_absolute() {
-        anyhow::bail!("Chemin absolu refusé dans le manifest : {}", rel.display());
+        anyhow::bail!("Absolute path not allowed in manifest: {}", rel.display());
     }
     for component in rel.components() {
         if matches!(component, std::path::Component::ParentDir) {
             anyhow::bail!(
-                "Traversée de répertoire refusée dans le manifest : {}",
+                "Directory traversal not allowed in manifest: {}",
                 rel.display()
             );
         }
@@ -551,7 +559,7 @@ mod scan_tests {
         let report = scan_bitrot(&base, &manifest, &XxHasher, Some(since), |_| {}).unwrap();
         assert_eq!(
             report.skipped, 1,
-            "Le fichier postérieur à since doit être ignoré"
+            "File modified after since should be ignored"
         );
         assert_eq!(report.scanned, 0);
 

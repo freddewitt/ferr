@@ -8,16 +8,16 @@ use console::style;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 
 // ---------------------------------------------------------------------------
-// Constantes d'affichage
+// Display constants
 // ---------------------------------------------------------------------------
 
-/// Largeur max d'affichage d'un nom de fichier (avec préfixe "…")
+/// Max display width for a file name (with "…" prefix)
 const FILE_NAME_DISPLAY_MAX: usize = 40;
-/// Largeur max d'affichage d'un chemin de destination
+/// Max display width for a destination path
 const DEST_PATH_DISPLAY_MAX: usize = 30;
-/// Largeur du séparateur horizontal dans les tableaux
+/// Width of horizontal separators in tables
 const TABLE_WIDTH: usize = 80;
-/// Largeur du séparateur horizontal dans l'historique
+/// Width of horizontal separators in history
 const HISTORY_TABLE_WIDTH: usize = 70;
 
 // ---------------------------------------------------------------------------
@@ -27,7 +27,7 @@ const HISTORY_TABLE_WIDTH: usize = 70;
 #[derive(Parser)]
 #[command(
     name = "ferr",
-    about = "Copie sécurisée de fichiers vidéo avec vérification hash et redondance PAR2",
+    about = "Secure file copy with hash verification and PAR2 redundancy",
     version
 )]
 struct Cli {
@@ -43,7 +43,7 @@ enum HashChoice {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Copie des fichiers avec vérification hash
+    /// Copy files with hash verification
     Copy {
         src: PathBuf,
         dest: PathBuf,
@@ -72,25 +72,27 @@ enum Commands {
         #[arg(long)]
         no_notify: bool,
         #[arg(long)]
-        no_pdf: bool,
+        pdf: bool,
+        #[arg(long)]
+        report: bool,
         #[arg(long)]
         dry_run: bool,
         #[arg(long)]
         quiet: bool,
-        /// Format de sortie de la progression : "human" (défaut) ou "machine"
+        /// Progress output format: "human" (default) or "machine"
         #[arg(long, value_name = "FORMAT", default_value = "human")]
         progress_format: String,
     },
-    /// Vérifie l'intégrité des fichiers
+    /// Verify file integrity against source or manifest
     Verify {
         src_or_manifest: PathBuf,
         dest: PathBuf,
         #[arg(long)]
         quiet: bool,
     },
-    /// Répare via PAR2
+    /// Repair corrupted files via PAR2
     Repair { manifest: PathBuf, dest: PathBuf },
-    /// Détecte le bit rot sur une destination
+    /// Detect bit rot on a destination
     Scan {
         dest: PathBuf,
         #[arg(long)]
@@ -100,7 +102,7 @@ enum Commands {
         #[arg(long)]
         quiet: bool,
     },
-    /// Surveille un point de montage et copie automatiquement
+    /// Watch a mount point and copy automatically on volume detection
     Watch {
         mount_point: PathBuf,
         #[arg(long)]
@@ -120,7 +122,7 @@ enum Commands {
         #[arg(long)]
         quiet: bool,
     },
-    /// Exporte un manifest vers ALE ou CSV
+    /// Export a manifest to ALE or CSV
     Export {
         manifest: PathBuf,
         #[arg(long, default_value = "csv")]
@@ -128,23 +130,23 @@ enum Commands {
         #[arg(long)]
         output: PathBuf,
     },
-    /// Génère un rapport PDF depuis un manifest
+    /// Generate a PDF report from a manifest
     Report {
         manifest: PathBuf,
         #[arg(long)]
         output: Option<PathBuf>,
     },
-    /// Gère les profils de copie
+    /// Manage copy profiles
     Profile {
         #[command(subcommand)]
         action: ProfileAction,
     },
-    /// Gère l'historique des sessions
+    /// Manage session history
     History {
         #[command(subcommand)]
         action: HistoryAction,
     },
-    /// Gère les certificats d'intégrité
+    /// Manage integrity certificates
     Cert {
         #[command(subcommand)]
         action: CertAction,
@@ -199,7 +201,7 @@ enum HistoryAction {
 
 #[derive(Subcommand)]
 enum CertAction {
-    /// Crée un certificat pour un dossier
+    /// Create a certificate for a source directory
     Create {
         src: PathBuf,
         #[arg(long)]
@@ -209,7 +211,7 @@ enum CertAction {
         #[arg(long)]
         quiet: bool,
     },
-    /// Vérifie un certificat reçu
+    /// Verify a received certificate against a destination
     Verify {
         cert: PathBuf,
         dest: PathBuf,
@@ -223,7 +225,7 @@ enum CertAction {
 // ---------------------------------------------------------------------------
 
 fn main() {
-    // Init structured logging — niveau contrôlable via RUST_LOG (ex: RUST_LOG=warn)
+    // Structured logging — level controllable via RUST_LOG (e.g. RUST_LOG=warn)
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -243,7 +245,7 @@ fn main() {
     match result {
         Ok(code) => process::exit(code),
         Err(e) => {
-            eprintln!("{} {e}", style("Erreur :").red().bold());
+            eprintln!("{} {e}", style("Error:").red().bold());
             process::exit(2);
         }
     }
@@ -266,7 +268,8 @@ fn run(cli: Cli) -> anyhow::Result<i32> {
             profile,
             no_preserve_meta,
             no_notify,
-            no_pdf,
+            pdf,
+            report,
             dry_run,
             quiet,
             progress_format,
@@ -285,7 +288,8 @@ fn run(cli: Cli) -> anyhow::Result<i32> {
             profile,
             no_preserve_meta,
             no_notify,
-            no_pdf,
+            pdf,
+            report,
             dry_run,
             quiet,
             progress_format,
@@ -336,10 +340,10 @@ fn run(cli: Cli) -> anyhow::Result<i32> {
 }
 
 // ---------------------------------------------------------------------------
-// Hooks post-copie — implémentations concrètes de PostCopyHook
+// Post-copy hooks
 // ---------------------------------------------------------------------------
 
-/// Génère un rapport PDF dans chaque dossier de destination.
+/// Generates a PDF report in each destination directory.
 struct PdfHook;
 impl ferr_core::PostCopyHook for PdfHook {
     fn on_copy_done(&self, manifest: &ferr_report::Manifest) -> anyhow::Result<()> {
@@ -350,15 +354,14 @@ impl ferr_core::PostCopyHook for PdfHook {
             std::fs::create_dir_all(&log_dir).ok();
             let pdf_path = log_dir.join(pdf_name);
             if let Err(e) = ferr_pdf::generate_report(manifest, &pdf_path) {
-                eprintln!("PDF non généré dans {dest_str} : {e}");
+                eprintln!("PDF not generated in {dest_str}: {e}");
             }
         }
         Ok(())
     }
 }
 
-
-/// Enregistre la session dans la base SQLite locale.
+/// Records the session in the local SQLite database.
 struct SessionHook;
 impl ferr_core::PostCopyHook for SessionHook {
     fn on_copy_done(&self, manifest: &ferr_report::Manifest) -> anyhow::Result<()> {
@@ -367,13 +370,13 @@ impl ferr_core::PostCopyHook for SessionHook {
     }
 }
 
-/// Envoie une notification système à la fin de la copie.
+/// Sends a system notification when the copy finishes.
 struct NotifyHook;
 impl ferr_core::PostCopyHook for NotifyHook {
     fn on_copy_done(&self, manifest: &ferr_report::Manifest) -> anyhow::Result<()> {
-        let title = "ferr — Copie terminée";
+        let title = "ferr — Copy complete";
         let msg = format!(
-            "{} fichiers · {} · {:.1}s",
+            "{} files · {} · {:.1}s",
             manifest.total_files,
             ferr_report::human_size(manifest.total_size_bytes),
             manifest.duration_secs,
@@ -384,13 +387,13 @@ impl ferr_core::PostCopyHook for NotifyHook {
     }
 }
 
-/// Construit le vecteur de hooks selon les flags CLI.
-fn build_hooks(no_pdf: bool, no_notify: bool, no_session: bool) -> Vec<ferr_core::HookRef> {
+/// Builds the hook vector based on CLI flags.
+fn build_hooks(pdf: bool, no_notify: bool, no_session: bool) -> Vec<ferr_core::HookRef> {
     let mut hooks: Vec<ferr_core::HookRef> = Vec::new();
     if !no_session {
         hooks.push(Arc::new(SessionHook));
     }
-    if !no_pdf {
+    if pdf {
         hooks.push(Arc::new(PdfHook));
     }
     if !no_notify {
@@ -403,7 +406,7 @@ fn build_hooks(no_pdf: bool, no_notify: bool, no_session: bool) -> Vec<ferr_core
 // cmd_copy
 // ---------------------------------------------------------------------------
 
-/// Arguments regroupés pour la commande `copy`.
+/// Grouped arguments for the `copy` command.
 struct CopyArgs {
     src: PathBuf,
     dest: PathBuf,
@@ -419,7 +422,8 @@ struct CopyArgs {
     profile: Option<String>,
     no_preserve_meta: bool,
     no_notify: bool,
-    no_pdf: bool,
+    pdf: bool,
+    report: bool,
     dry_run: bool,
     quiet: bool,
     progress_format: String,
@@ -441,7 +445,8 @@ fn cmd_copy(args: CopyArgs) -> anyhow::Result<i32> {
         profile,
         no_preserve_meta,
         no_notify,
-        no_pdf,
+        pdf,
+        report,
         dry_run: dry_run_flag,
         quiet,
         progress_format,
@@ -456,7 +461,7 @@ fn cmd_copy(args: CopyArgs) -> anyhow::Result<i32> {
     }
     let (hash_algo, _hash_algo_str) = hash_choice_to_algo(&hash);
 
-    // Charger le profil si fourni
+    // Load profile if provided
     let (destinations, hash_algo, par2, camera, eject, rename) = if let Some(profile_name) = profile
     {
         match ferr_core::load_profile(&profile_name) {
@@ -469,7 +474,7 @@ fn cmd_copy(args: CopyArgs) -> anyhow::Result<i32> {
                 rename,
             ),
             Err(e) => {
-                eprintln!("Profil non trouvé : {e}");
+                eprintln!("Profile not found: {e}");
                 (destinations, hash_algo, par2, camera, eject, rename)
             }
         }
@@ -477,7 +482,7 @@ fn cmd_copy(args: CopyArgs) -> anyhow::Result<i32> {
         (destinations, hash_algo, par2, camera, eject, rename)
     };
 
-    let hooks = build_hooks(no_pdf, no_notify, false);
+    let hooks = build_hooks(pdf, no_notify, false);
 
     let job = ferr_core::CopyJob {
         source: src.clone(),
@@ -490,39 +495,58 @@ fn cmd_copy(args: CopyArgs) -> anyhow::Result<i32> {
         rename_template: rename,
         auto_eject: eject,
         dedup,
+        save_manifest: report,
     };
 
-    // Mode dry-run
+    // Dry-run mode
     if dry_run_flag {
-        let report = ferr_core::dry_run(&job)?;
-        if !quiet {
+        let dry_report = ferr_core::dry_run(&job)?;
+        if machine_mode {
+            let space_ok = dry_report.space_checks.iter().all(|c| c.ok);
+            let space_err = if space_ok { 0 } else { 1 };
+            for (i, f) in dry_report.files.iter().enumerate() {
+                let name = f.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                println!(
+                    "PROGRESS:{}/{total}|{}/{files}|300 MB/s|{}",
+                    i + 1,
+                    i + 1,
+                    name,
+                    total = dry_report.total_size_bytes,
+                    files = dry_report.total_files,
+                );
+            }
+            println!(
+                "COMPLETE:{}|{}|{}|",
+                dry_report.total_files, dry_report.total_size_bytes, space_err
+            );
+        } else if !quiet {
             println!(
                 "{}",
-                style("Mode dry-run — aucun fichier écrit").yellow().bold()
+                style("Dry-run mode — no files written").yellow().bold()
             );
-            println!("  Fichiers    : {}", report.total_files);
-            println!("  Taille      : {}", human_size(report.total_size_bytes));
-            println!("  PAR2 estimé : {}", human_size(report.par2_size_bytes));
-            println!("  Durée est.  : {}s (à 300 Mo/s)", report.estimated_secs);
-            for check in &report.space_checks {
+            println!("  Files       : {}", dry_report.total_files);
+            println!("  Size        : {}", human_size(dry_report.total_size_bytes));
+            println!("  PAR2 est.   : {}", human_size(dry_report.par2_size_bytes));
+            println!("  Duration est.: {}s (at 300 MB/s)", dry_report.estimated_secs);
+            for check in &dry_report.space_checks {
                 if check.ok {
                     println!(
-                        "  {} {} — disponible {}",
+                        "  {} {} — available {}",
                         style("✓").green(),
                         check.destination.display(),
                         human_size(check.available_bytes)
                     );
                 } else {
                     println!(
-                        "  {} {} — manque {}",
+                        "  {} {} — missing {}",
                         style("✗").red(),
                         check.destination.display(),
                         human_size(check.delta_bytes.unsigned_abs())
                     );
                 }
             }
-            if let Some(clips) = &report.clips {
-                println!("  Clips détectés : {}", clips.len());
+            if let Some(clips) = &dry_report.clips {
+                println!("  Clips detected: {}", clips.len());
             }
         }
         return Ok(0);
@@ -532,27 +556,34 @@ fn cmd_copy(args: CopyArgs) -> anyhow::Result<i32> {
     let copy_start = Instant::now();
 
     if machine_mode {
-        // ── Mode machine-readable ──────────────────────────────────────────
-        // Émet des lignes parsables par la GUI sur stdout.
+        // ── Machine-readable mode ──────────────────────────────────────────
         let file_count = Arc::new(AtomicUsize::new(0));
+        let file_count  = Arc::clone(&file_count);
+        let error_count = Arc::new(AtomicUsize::new(0));
         let on_progress = {
-            let file_count = Arc::clone(&file_count);
+            let file_count  = Arc::clone(&file_count);
+            let error_count = Arc::clone(&error_count);
             move |p: ferr_core::CopyProgress| {
                 if matches!(p.phase, ferr_core::CopyPhase::Done) {
-                    return; // COMPLETE sera émis après run_copy
+                    return;
                 }
                 let name = p.current_file.to_string_lossy();
                 let files_done = p.total_files_done;
                 if files_done > file_count.load(Ordering::Relaxed) {
                     file_count.store(files_done, Ordering::Relaxed);
                 }
+                if p.errors > error_count.load(Ordering::Relaxed) {
+                    error_count.store(p.errors, Ordering::Relaxed);
+                    println!("ERROR:{}|copy_error|hash mismatch or write failure", name);
+                }
+                let speed_str = human_size(p.speed_bytes_sec) + "/s";
                 println!(
                     "PROGRESS:{}/{}|{}/{}|{}|{}",
                     p.file_bytes_done,
                     p.file_bytes_total,
                     files_done,
                     p.total_files,
-                    p.speed_bytes_sec,
+                    speed_str,
                     name,
                 );
             }
@@ -579,12 +610,12 @@ fn cmd_copy(args: CopyArgs) -> anyhow::Result<i32> {
             manifest_path,
         );
     } else {
-        // ── Mode human (indicatif) ─────────────────────────────────────────
+        // ── Human mode (indicatif) ─────────────────────────────────────────
         let mp = MultiProgress::new();
         let global_bar = mp.add(ProgressBar::new(0));
         global_bar.set_style(
             ProgressStyle::with_template(
-                "{spinner:.cyan} [{elapsed_precise}] {pos}/{len} fichiers  {bytes} copiés  {binary_bytes_per_sec}  ETA {eta}",
+                "{spinner:.cyan} [{elapsed_precise}] {pos}/{len} files  {bytes} copied  {binary_bytes_per_sec}  ETA {eta}",
             )
             .unwrap()
             .progress_chars("=>-"),
@@ -610,18 +641,18 @@ fn cmd_copy(args: CopyArgs) -> anyhow::Result<i32> {
                     return;
                 }
                 let phase_label = match p.phase {
-                    ferr_core::CopyPhase::Copying => "[Copie]",
-                    ferr_core::CopyPhase::Verifying => "[Vérif]",
+                    ferr_core::CopyPhase::Copying => "[Copy]",
+                    ferr_core::CopyPhase::Verifying => "[Verify]",
                     ferr_core::CopyPhase::GeneratingPar2 => "[PAR2]",
-                    ferr_core::CopyPhase::Done => "[Terminé]",
+                    ferr_core::CopyPhase::Done => "[Done]",
                 };
                 match p.phase {
                     ferr_core::CopyPhase::Done => {
                         file_bar.finish_and_clear();
-                        global_bar.finish_with_message("Terminé ✓");
+                        global_bar.finish_with_message("Done ✓");
                     }
                     ferr_core::CopyPhase::GeneratingPar2 => {
-                        file_bar.set_message("[PAR2] génération…");
+                        file_bar.set_message("[PAR2] generating…");
                     }
                     _ => {
                         let name = p
@@ -685,7 +716,7 @@ fn cmd_copy(args: CopyArgs) -> anyhow::Result<i32> {
 
 fn cmd_verify(src_or_manifest: PathBuf, dest: PathBuf, quiet: bool) -> anyhow::Result<i32> {
     let hasher: Box<dyn ferr_hash::Hasher> = Box::new(ferr_hash::XxHasher);
-    let bar = make_spinner("Vérification en cours…", quiet);
+    let bar = make_spinner("Verifying…", quiet);
 
     let report = if src_or_manifest
         .extension()
@@ -704,21 +735,21 @@ fn cmd_verify(src_or_manifest: PathBuf, dest: PathBuf, quiet: bool) -> anyhow::R
 
     if !quiet {
         println!(
-            "\n  {} {} ok  {} manquants  {} corrompus  ({:.1}s)",
-            style("Résultat :").bold(),
+            "\n  {} {} ok  {} missing  {} corrupted  ({:.1}s)",
+            style("Result:").bold(),
             report.ok.len(),
             report.missing.len(),
             report.corrupted.len(),
             report.duration_secs
         );
         for p in &report.missing {
-            println!("  {} {}", style("MANQUANT").yellow(), p.display());
+            println!("  {} {}", style("MISSING").yellow(), p.display());
         }
         for p in &report.corrupted {
-            println!("  {} {}", style("CORROMPU").red(), p.display());
+            println!("  {} {}", style("CORRUPTED").red(), p.display());
         }
         if report.exit_code() == 0 {
-            println!("  {}", style("Tout OK ✓").green().bold());
+            println!("  {}", style("All OK ✓").green().bold());
         }
     }
 
@@ -730,10 +761,10 @@ fn cmd_verify(src_or_manifest: PathBuf, dest: PathBuf, quiet: bool) -> anyhow::R
 // ---------------------------------------------------------------------------
 
 fn cmd_repair(manifest: PathBuf, dest: PathBuf) -> anyhow::Result<i32> {
-    let bar = make_spinner("Réparation PAR2 en cours…", false);
+    let bar = make_spinner("PAR2 repair in progress…", false);
     let result = ferr_par2::repair(&manifest, &dest, |pct| {
         if let Some(b) = &bar {
-            b.set_message(format!("PAR2 : {pct}%…"));
+            b.set_message(format!("PAR2: {pct}%…"));
         }
     });
     if let Some(b) = &bar {
@@ -742,15 +773,15 @@ fn cmd_repair(manifest: PathBuf, dest: PathBuf) -> anyhow::Result<i32> {
 
     match result {
         Ok(ferr_par2::Par2RepairStatus::Repaired) => {
-            println!("  {} Réparation réussie ✓", style("PAR2 :").green().bold());
+            println!("  {} Repair successful ✓", style("PAR2:").green().bold());
             Ok(0)
         }
         Ok(ferr_par2::Par2RepairStatus::Failed) => {
-            println!("  {} Irrécupérable", style("PAR2 :").red().bold());
+            println!("  {} Unrecoverable", style("PAR2:").red().bold());
             Ok(3)
         }
         Err(e) => {
-            println!("  {} {e}", style("PAR2 non disponible :").yellow().bold());
+            println!("  {} {e}", style("PAR2 not available:").yellow().bold());
             Ok(3)
         }
     }
@@ -778,7 +809,7 @@ fn cmd_scan(
         .map(|s| chrono::DateTime::parse_from_rfc3339(s).map(|d| d.with_timezone(&chrono::Utc)))
         .transpose()?;
 
-    let bar = make_spinner("Scan bit rot en cours…", quiet);
+    let bar = make_spinner("Scanning for bit rot…", quiet);
 
     let report = ferr_verify::scan_bitrot(&dest, &manifest, hasher.as_ref(), since_dt, |p| {
         if let Some(b) = &bar {
@@ -796,9 +827,9 @@ fn cmd_scan(
     }
 
     if !quiet {
-        println!("\n  Scan terminé le {}", style(&report.scan_date).dim());
+        println!("\n  Scan completed on {}", style(&report.scan_date).dim());
         println!(
-            "  {} scannés  {} ignorés  {} corrompus",
+            "  {} scanned  {} skipped  {} corrupted",
             report.scanned,
             report.skipped,
             report.corrupted.len()
@@ -809,11 +840,11 @@ fn cmd_scan(
                 style("BIT ROT").red().bold(),
                 entry.path.display()
             );
-            println!("     attendu : {}", style(&entry.expected_hash).dim());
-            println!("     actuel  : {}", style(&entry.actual_hash).red());
+            println!("     expected: {}", style(&entry.expected_hash).dim());
+            println!("     actual  : {}", style(&entry.actual_hash).red());
         }
         if report.corrupted.is_empty() {
-            println!("  {}", style("Aucun bit rot détecté ✓").green().bold());
+            println!("  {}", style("No bit rot detected ✓").green().bold());
         }
     }
 
@@ -848,7 +879,7 @@ fn cmd_watch(
                 p.auto_eject,
             ),
             Err(e) => {
-                eprintln!("Profil non trouvé : {e}");
+                eprintln!("Profile not found: {e}");
                 (dest, hash_algo_from_args, par2, camera, eject)
             }
         }
@@ -856,7 +887,7 @@ fn cmd_watch(
         (dest, hash_algo_from_args, par2, camera, eject)
     };
 
-    let watch_hooks = build_hooks(false, false, false); // PDF + session + notify par défaut
+    let watch_hooks = build_hooks(false, false, false);
 
     let config = ferr_core::WatchConfig {
         mount_point: mount_point.clone(),
@@ -875,12 +906,12 @@ fn cmd_watch(
 
     if !quiet {
         println!(
-            "{} {} (délai {}s)",
+            "{} {} (delay {}s)",
             style("ferr watch").cyan().bold(),
             mount_point.display(),
             delay
         );
-        println!("  En attente de volumes… (Ctrl+C pour quitter)");
+        println!("  Waiting for volumes… (Ctrl+C to quit)");
     }
 
     ferr_core::run_watch(config, move |event| {
@@ -889,22 +920,22 @@ fn cmd_watch(
         }
         match event {
             ferr_core::WatchEvent::Waiting => {
-                println!("  {} En attente…", style("●").dim());
+                println!("  {} Waiting…", style("●").dim());
             }
             ferr_core::WatchEvent::VolumeDetected { name, size, .. } => {
                 println!(
-                    "  {} Volume détecté : {} ({})",
+                    "  {} Volume detected: {} ({})",
                     style("▶").cyan().bold(),
                     style(&name).bold(),
                     human_size(size)
                 );
             }
             ferr_core::WatchEvent::CopyStarting { volume } => {
-                println!("  {} Démarrage copie de {volume}…", style("→").green());
+                println!("  {} Starting copy of {volume}…", style("→").green());
             }
             ferr_core::WatchEvent::CopyDone { volume, manifest } => {
                 println!(
-                    "  {} {volume} copié — {} fichiers · {}",
+                    "  {} {volume} copied — {} files · {}",
                     style("✓").green().bold(),
                     manifest.total_files,
                     human_size(manifest.total_size_bytes)
@@ -912,12 +943,12 @@ fn cmd_watch(
             }
             ferr_core::WatchEvent::Ejected { volume } => {
                 println!(
-                    "  {} {volume} éjectée — vous pouvez reformater cette carte",
+                    "  {} {volume} ejected — safe to reformat",
                     style("⏏").cyan().bold()
                 );
             }
             ferr_core::WatchEvent::Error { volume, error } => {
-                println!("  {} {volume} : {error}", style("✗").red().bold());
+                println!("  {} {volume}: {error}", style("✗").red().bold());
             }
             ferr_core::WatchEvent::CopyProgress(_) => {}
         }
@@ -940,7 +971,7 @@ fn cmd_export(
         ExportFormat::Ale => ferr_report::export_ale(&manifest, &output)?,
         ExportFormat::Csv => ferr_report::export_csv(&manifest, &output)?,
     }
-    println!("  {} Export vers {}", style("✓").green(), output.display());
+    println!("  {} Exported to {}", style("✓").green(), output.display());
     Ok(0)
 }
 
@@ -952,7 +983,7 @@ fn cmd_report(manifest_path: PathBuf, output: Option<PathBuf>) -> anyhow::Result
     let manifest = ferr_report::load_manifest(&manifest_path)?;
     let output = output.unwrap_or_else(|| manifest_path.with_extension("pdf"));
     ferr_pdf::generate_report(&manifest, &output)?;
-    println!("  {} PDF généré : {}", style("✓").green(), output.display());
+    println!("  {} PDF generated: {}", style("✓").green(), output.display());
     Ok(0)
 }
 
@@ -981,21 +1012,21 @@ fn cmd_profile(action: ProfileAction) -> anyhow::Result<i32> {
                 auto_eject: eject,
             };
             ferr_core::save_profile(&profile)?;
-            println!("  {} Profil '{}' sauvegardé", style("✓").green(), name);
+            println!("  {} Profile '{}' saved", style("✓").green(), name);
         }
         ProfileAction::List => {
             let profiles = ferr_core::list_profiles()?;
             if profiles.is_empty() {
-                println!("  Aucun profil configuré.");
+                println!("  No profiles configured.");
             } else {
                 for p in &profiles {
                     println!(
-                        "  {} — hash:{} par2:{} caméra:{} éjection:{}",
+                        "  {} — hash:{} par2:{} camera:{} eject:{}",
                         style(&p.name).bold(),
                         p.hash_algo,
                         p.par2_redundancy
                             .map(|v| v.to_string())
-                            .unwrap_or_else(|| "non".into()),
+                            .unwrap_or_else(|| "none".into()),
                         p.camera_mode,
                         p.auto_eject,
                     );
@@ -1008,7 +1039,7 @@ fn cmd_profile(action: ProfileAction) -> anyhow::Result<i32> {
         }
         ProfileAction::Delete { name } => {
             ferr_core::delete_profile(&name)?;
-            println!("  {} Profil '{}' supprimé", style("✓").green(), name);
+            println!("  {} Profile '{}' deleted", style("✓").green(), name);
         }
     }
     Ok(0)
@@ -1027,11 +1058,11 @@ fn cmd_history(action: HistoryAction) -> anyhow::Result<i32> {
                 ..Default::default()
             })?;
             if sessions.is_empty() {
-                println!("  Aucune session enregistrée.");
+                println!("  No sessions recorded.");
             } else {
                 println!(
                     "  {:>5}  {:26}  {:>8}  {:>10}  Source",
-                    "ID", "Date", "Fichiers", "Taille"
+                    "ID", "Date", "Files", "Size"
                 );
                 let sep = "─".repeat(HISTORY_TABLE_WIDTH);
                 println!("  {sep}");
@@ -1049,12 +1080,12 @@ fn cmd_history(action: HistoryAction) -> anyhow::Result<i32> {
         }
         HistoryAction::Show { id } => match ferr_session::get_session(id)? {
             Some(s) => println!("{}", serde_json::to_string_pretty(&s)?),
-            None => println!("  Session #{id} non trouvée."),
+            None => println!("  Session #{id} not found."),
         },
         HistoryAction::Find { hash_or_name } => {
             let records = ferr_session::find_file_by_hash(&hash_or_name)?;
             if records.is_empty() {
-                println!("  Aucun fichier trouvé pour '{hash_or_name}'.");
+                println!("  No file found for '{hash_or_name}'.");
             } else {
                 for r in &records {
                     println!(
@@ -1071,7 +1102,7 @@ fn cmd_history(action: HistoryAction) -> anyhow::Result<i32> {
 }
 
 // ---------------------------------------------------------------------------
-// Utilitaires
+// Utilities
 // ---------------------------------------------------------------------------
 
 fn hash_choice_to_algo(h: &HashChoice) -> (ferr_core::HashAlgo, &'static str) {
@@ -1101,8 +1132,8 @@ fn print_summary_table(
     let sep = "─".repeat(TABLE_WIDTH);
     println!("{sep}");
     println!(
-        "  {:<30}  {:>10}  {:>10}  {:>10}  {:>7}  Statut",
-        "Destination", "Fichiers", "Taille", "Durée", "Erreurs"
+        "  {:<30}  {:>10}  {:>10}  {:>10}  {:>7}  Status",
+        "Destination", "Files", "Size", "Duration", "Errors"
     );
     println!("{sep}");
 
@@ -1115,8 +1146,8 @@ fn print_summary_table(
     let dur_str = format!("{:.1}s", elapsed.as_secs_f64());
     let status_s = match manifest.status {
         ferr_report::JobStatus::Ok => style("OK").green().bold().to_string(),
-        ferr_report::JobStatus::Partial => style("PARTIEL").yellow().bold().to_string(),
-        ferr_report::JobStatus::Failed => style("ÉCHEC").red().bold().to_string(),
+        ferr_report::JobStatus::Partial => style("PARTIAL").yellow().bold().to_string(),
+        ferr_report::JobStatus::Failed => style("FAILED").red().bold().to_string(),
     };
 
     for dest in destinations {
@@ -1147,7 +1178,7 @@ fn print_summary_table(
 
     println!("{sep}");
     println!(
-        "  Total : {} fichiers · {} · {:.1}s",
+        "  Total: {} files · {} · {:.1}s",
         manifest.total_files,
         size_str,
         elapsed.as_secs_f64()
@@ -1171,7 +1202,7 @@ fn cmd_cert(action: CertAction) -> anyhow::Result<i32> {
             quiet,
         } => {
             let (hash_algo, _) = hash_choice_to_algo(&hash);
-            let bar = make_spinner("Génération du certificat en cours…", quiet);
+            let bar = make_spinner("Generating certificate…", quiet);
 
             let manifest = ferr_core::generate_manifest(&src, hash_algo, |_| {})?;
             let cert_data = ferr_cert::pack(&manifest)?;
@@ -1190,7 +1221,7 @@ fn cmd_cert(action: CertAction) -> anyhow::Result<i32> {
             }
             if !quiet {
                 println!(
-                    "  {} Certificat généré : {}",
+                    "  {} Certificate generated: {}",
                     style("✓").green(),
                     out_path.display()
                 );
@@ -1198,7 +1229,7 @@ fn cmd_cert(action: CertAction) -> anyhow::Result<i32> {
             Ok(0)
         }
         CertAction::Verify { cert, dest, quiet } => {
-            let bar = make_spinner("Vérification du certificat en cours…", quiet);
+            let bar = make_spinner("Verifying certificate…", quiet);
             let cert_data = std::fs::read_to_string(&cert)?;
 
             match ferr_cert::unpack(&cert_data) {
@@ -1218,22 +1249,22 @@ fn cmd_cert(action: CertAction) -> anyhow::Result<i32> {
 
                     if !quiet {
                         println!(
-                            "\n  {} {} ok  {} manquants  {} corrompus",
-                            style("Résultat :").bold(),
+                            "\n  {} {} ok  {} missing  {} corrupted",
+                            style("Result:").bold(),
                             report.ok.len(),
                             report.missing.len(),
                             report.corrupted.len(),
                         );
                         for p in &report.missing {
-                            println!("  {} {}", style("MANQUANT").yellow(), p.display());
+                            println!("  {} {}", style("MISSING").yellow(), p.display());
                         }
                         for p in &report.corrupted {
-                            println!("  {} {}", style("CORROMPU").red(), p.display());
+                            println!("  {} {}", style("CORRUPTED").red(), p.display());
                         }
                         if report.exit_code() == 0 {
                             println!(
                                 "  {}",
-                                style("Certificat valide et contenu intact ✓")
+                                style("Certificate valid and content intact ✓")
                                     .green()
                                     .bold()
                             );
@@ -1246,8 +1277,8 @@ fn cmd_cert(action: CertAction) -> anyhow::Result<i32> {
                         b.finish_and_clear();
                     }
                     println!(
-                        "  {} Le certificat a été altéré ou est invalide : {}",
-                        style("✗ Erreur :").red().bold(),
+                        "  {} Certificate has been tampered with or is invalid: {}",
+                        style("✗ Error:").red().bold(),
                         e
                     );
                     Ok(4)

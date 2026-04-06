@@ -21,13 +21,13 @@ pub const CERT_FOOTER: &str = "-----END FERR CERTIFICATE-----";
 
 #[derive(Error, Debug)]
 pub enum CertError {
-    #[error("Certificat malformé ou manquant l'en-tête/pied de page")]
+    #[error("Malformed certificate or missing header/footer")]
     MalformedFormat,
-    #[error("Erreur de décodage Base64: {0}")]
+    #[error("Base64 decoding error: {0}")]
     Base64Error(#[from] base64::DecodeError),
-    #[error("Erreur de parsing JSON: {0}")]
+    #[error("JSON parsing error: {0}")]
     JsonError(#[from] serde_json::Error),
-    #[error("Erreur d'intégrité (le contenu a été altéré)")]
+    #[error("Integrity error (content has been altered)")]
     IntegrityError,
 }
 

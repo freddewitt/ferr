@@ -5,6 +5,17 @@ All notable changes to the **Ferr** project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-04-06
+
+### Added
+- **Certificate Management via GUI** (`ferr-app`): The Ferr app now fully supports creating and verifying `ferrcert` Integrity Certificates directly from the intuitive Health tab using interactive drag-and-drop zones.
+- **Internationalization (i18n)** (`ferr-core`, `ferr-verify`, `ferr-transfer`, etc.): The entire Command-Line Interface, internal logging system, error messages, and native OS notifications have been fully translated from French to English in order to broaden accessibility and standardize the user experience.
+- **Log Organization**: Generated reports (JSON manifests and PDF logs) are now securely grouped in dedicated, timestamped subdirectories (`_ferr_logs_YYYYMMDD_HHMMSS`) at the destination root, keeping backups clean. CLI commands like `verify` and `scan` have been updated to auto-discover manifests in these subdirectories.
+- **Documentation Updates**: Added GUI compilation steps to the README. The `CLI.md` reference guide has been significantly revamped and reformatted with standardized parameter tables, exit codes, and better examples.
+
+### Changed
+- Bumped all `ferr-*` crates to version `0.3.0` to reflect new feature additions.
+
 ## [0.2.0] - 2026-04-02
 
 ### Added

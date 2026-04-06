@@ -28,6 +28,7 @@ Traditional copy tools can fail silently or leave you wondering if your data is 
 - 🖥️ **Sleek Desktop GUI**: A beautifully designed, multilingual macOS app built with Tauri v2.
 - 💾 **Smart History**: Powered by a local SQLite database to prevent duplicate copies.
 - 📽️ **Cinema-Ready**: Automatic detection of BRAW, R3D, ARRI, Sony, and more.
+- 🗂️ **Clean Backups**: Automatic timestamped subfolders (`_ferr_logs`) for clean reports.
 
 ---
 
@@ -115,7 +116,7 @@ ferr watch /Volumes --dest /mnt/backups --profile onset
 | **`ferr-par2`** | Native PAR2 verification and repair engine. |
 | **`ferr-hash`** | High-performance streaming hashing (xxHash/SHA2). |
 | **`ferr-session`** | SQLite-backed transfer history and deduplication. |
-| **`ferr-report`** | JSON manifest architecture and PDF generation. |
+| **`ferr-report`** | JSON manifest architecture and PDF generation, saved in organized logs. |
 
 ---
 

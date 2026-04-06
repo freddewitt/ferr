@@ -86,10 +86,9 @@ fn find_par2_binary() -> Option<Par2Style> {
     None
 }
 
-/// Retourne un message d'erreur d'installation clair.
 fn par2_not_found_error() -> anyhow::Error {
     anyhow::anyhow!(
-        "par2cmdline introuvable. Installez-le :\n\
+        "par2cmdline not found. Install it:\n\
          • macOS  : brew install par2\n\
          • Debian : sudo apt install par2\n\
          • Windows: winget install par2cmdline"
@@ -174,7 +173,7 @@ pub fn generate(
 ) -> anyhow::Result<Par2Result> {
     if !(1..=40).contains(&redundancy_pct) {
         anyhow::bail!(
-            "redundancy_pct doit être entre 1 et 40, reçu {}",
+            "redundancy_pct must be between 1 and 40, got {}",
             redundancy_pct
         );
     }
@@ -184,8 +183,8 @@ pub fn generate(
     {
         on_progress(0);
         anyhow::bail!(
-            "ferr-par2: génération PAR2 désactivée (stub). \
-             Supprimez FERR_PAR2_STUB et installez par2cmdline."
+            "ferr-par2: PAR2 generation disabled (stub). \
+             Remove FERR_PAR2_STUB and install par2cmdline."
         );
     }
 
@@ -196,7 +195,7 @@ pub fn generate(
 
         let files = collect_files(source_dir);
         if files.is_empty() {
-            anyhow::bail!("Aucun fichier source trouvé dans {}", source_dir.display());
+            anyhow::bail!("No source file found in {}", source_dir.display());
         }
 
         std::fs::create_dir_all(output_dir)?;
@@ -234,7 +233,7 @@ pub fn generate(
         // ce qui remplit le buffer de la pipe avant que les lignes soient lues.
         let output = cmd
             .output()
-            .map_err(|e| anyhow::anyhow!("Impossible de lancer par2 : {e}"))?;
+            .map_err(|e| anyhow::anyhow!("Unable to run par2: {e}"))?;
 
         // Rejouer les tokens "Opening:" pour un progrès approximatif.
         let tokens = split_par2_output(&output.stdout);
@@ -256,7 +255,7 @@ pub fn generate(
         if !output.status.success() {
             let stderr_msg = String::from_utf8_lossy(&output.stderr);
             anyhow::bail!(
-                "par2 create a échoué (code {:?}): {}",
+                "par2 create failed (code {:?}): {}",
                 output.status.code(),
                 stderr_msg.trim()
             );
@@ -294,7 +293,7 @@ pub fn verify(par2_index: &Path, target_dir: &Path) -> anyhow::Result<Par2Verify
     let view = Par2View::create(par2_index, target_dir)?;
 
     let file_set = rust_par2::parse(par2_index)
-        .map_err(|e| anyhow::anyhow!("Échec du parsing du fichier PAR2 : {:?}", e))?;
+        .map_err(|e| anyhow::anyhow!("Failed to parse PAR2 file: {:?}", e))?;
 
     let result = rust_par2::verify(&file_set, &view.path);
 
@@ -321,7 +320,7 @@ pub fn repair(
     let view = Par2View::create(par2_index, target_dir)?;
 
     let file_set = rust_par2::parse(par2_index)
-        .map_err(|e| anyhow::anyhow!("Échec du parsing du fichier PAR2 : {:?}", e))?;
+        .map_err(|e| anyhow::anyhow!("Failed to parse PAR2 file: {:?}", e))?;
 
     on_progress(10);
 
@@ -333,7 +332,7 @@ pub fn repair(
             Ok(Par2RepairStatus::Repaired)
         }
         Err(e) => {
-            tracing::error!("erreur de réparation native : {:?}", e);
+            tracing::error!("native repair error: {:?}", e);
             Ok(Par2RepairStatus::Failed)
         }
     }
@@ -359,7 +358,15 @@ impl Par2View {
         // 1. Symlinks vers les fichiers de donnée (RECURSIF)
         //    Il faut recréer la structure de dossiers pour que rust_par2
         //    retrouve "folder/file.dat".
-        Self::link_dir_rec(target_dir, &view_path, target_dir)?;
+        if target_dir.is_file() {
+            // Cible = fichier unique : on le lie directement à la racine de la vue
+            let name = target_dir.file_name().ok_or_else(|| {
+                anyhow::anyhow!("Unable to get target file name")
+            })?;
+            let _ = link_or_copy(target_dir, &view_path.join(name));
+        } else {
+            Self::link_dir_rec(target_dir, &view_path, target_dir)?;
+        }
 
         // 2. Symlinks vers les fichiers PAR2 (index + volumes)
         if let Some(par2_dir) = par2_index.parent() {

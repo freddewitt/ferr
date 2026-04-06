@@ -79,6 +79,8 @@ pub struct CopyJob {
     /// Éjecter la source après copie réussie.
     pub auto_eject: bool,
     pub dedup: bool,
+    /// Sauvegarder le manifest JSON dans la destination (opt-in).
+    pub save_manifest: bool,
 }
 
 impl Default for CopyJob {
@@ -94,6 +96,7 @@ impl Default for CopyJob {
             rename_template: None,
             auto_eject: false,
             dedup: false,
+            save_manifest: false,
         }
     }
 }
@@ -222,7 +225,7 @@ pub fn eject_volume(mount_point: &Path) -> anyhow::Result<()> {
             .args(["eject", &mount_point.to_string_lossy()])
             .status()?;
         if !status.success() {
-            anyhow::bail!("diskutil eject a échoué sur {}", mount_point.display());
+            anyhow::bail!("diskutil eject failed on {}", mount_point.display());
         }
         Ok(())
     }
@@ -241,7 +244,7 @@ pub fn eject_volume(mount_point: &Path) -> anyhow::Result<()> {
             || drive.chars().nth(1) != Some(':')
         {
             anyhow::bail!(
-                "Format de chemin d'éjection non supporté (attendu X:) : {}",
+                "Unsupported eject path format (expected X:) : {}",
                 mount_point.display()
             );
         }
@@ -258,7 +261,7 @@ pub fn eject_volume(mount_point: &Path) -> anyhow::Result<()> {
 
     #[cfg(not(any(target_os = "macos", windows)))]
     {
-        anyhow::bail!("Éjection non supportée sur cette plateforme");
+        anyhow::bail!("Ejection not supported on this platform");
     }
 }
 
@@ -279,7 +282,7 @@ pub struct DryRunReport {
 const DRY_RUN_SPEED_BPS: u64 = 300 * 1_000_000; // 300 Mo/s
 
 pub fn dry_run(job: &CopyJob) -> anyhow::Result<DryRunReport> {
-    let files = collect_files(&job.source)?;
+    let (_, files) = resolve_source(&job.source)?;
     let total_size_bytes: u64 = files
         .iter()
         .map(|f| std::fs::metadata(f).map(|m| m.len()).unwrap_or(0))
@@ -396,7 +399,7 @@ pub fn run_watch(
         let event = match result {
             Ok(e) => e,
             Err(e) => {
-                tracing::error!("erreur de surveillance : {e}");
+                tracing::error!("watch error: {e}");
                 continue;
             }
         };
@@ -442,6 +445,7 @@ pub fn run_watch(
                         rename_template: config_thread.copy_job.rename_template.clone(),
                         auto_eject: false,
                         dedup: false,
+                        save_manifest: false,
                     };
 
                     let hooks_thread = config_thread.hooks.clone();
@@ -463,7 +467,7 @@ pub fn run_watch(
                                     Ok(()) => on_event_thread(WatchEvent::Ejected { volume: name }),
                                     Err(e) => on_event_thread(WatchEvent::Error {
                                         volume: name,
-                                        error: format!("Éjection : {e}"),
+                                        error: format!("Ejection: {e}"),
                                     }),
                                 }
                             }
@@ -524,18 +528,18 @@ pub fn run_copy(
 
     // Vérification espace disque
     let space_checks = check_space(&job.source, &job.destinations, job.par2_redundancy)
-        .context("Impossible de vérifier l'espace disque disponible")?;
+        .context("Unable to check available disk space")?;
     for check in &space_checks {
         if !check.ok {
             anyhow::bail!(
-                "Espace insuffisant sur {} : manque {} octets",
+                "Insufficient space on {}: missing {} bytes",
                 check.destination.display(),
                 check.delta_bytes.unsigned_abs()
             );
         }
     }
 
-    let src_files = collect_files(&job.source)?;
+    let (src_root, src_files) = resolve_source(&job.source)?;
     let total_files = src_files.len();
     let mut file_entries: Vec<ferr_report::FileEntry> = Vec::new();
     let mut total_size_bytes = 0u64;
@@ -544,7 +548,7 @@ pub fn run_copy(
     let global_start = Instant::now();
 
     for (idx, src_file) in src_files.iter().enumerate() {
-        let rel = src_file.strip_prefix(&job.source)?;
+        let rel = src_file.strip_prefix(&src_root)?;
         let (file_size, modified_at) = get_file_metadata(src_file);
 
         // Appliquer le renommage si template fourni
@@ -667,7 +671,7 @@ pub fn run_copy(
             }
             Err(e) => {
                 errors += 1;
-                tracing::error!(path = %rel.display(), "erreur de copie : {e}");
+                tracing::error!(path = %rel.display(), "copy error: {e}");
                 file_entries.push(ferr_report::FileEntry {
                     path: dest_rel.to_string_lossy().replace('\\', "/"),
                     size: file_size,
@@ -702,7 +706,7 @@ pub fn run_copy(
                         e.par2_generated = true;
                     }
                 }
-                Err(e) => tracing::warn!("PAR2 non disponible : {e}"),
+                Err(e) => tracing::warn!("PAR2 not available: {e}"),
             }
         }
     }
@@ -733,27 +737,29 @@ pub fn run_copy(
         files: file_entries,
     };
 
-    // Sauvegarder le manifest dans chaque destination
-    for dest_path in &job.destinations {
-        let log_dir = dest_path.join(&log_dir_name);
-        std::fs::create_dir_all(&log_dir).ok();
-        let mp = log_dir.join("ferr-manifest.json");
-        if let Err(e) = ferr_report::save_manifest(&manifest, &mp) {
-            tracing::error!(path = %dest_path.display(), "manifest non sauvegardé : {e}");
+    // Sauvegarder le manifest dans chaque destination (opt-in)
+    if job.save_manifest {
+        for dest_path in &job.destinations {
+            let log_dir = dest_path.join(&log_dir_name);
+            std::fs::create_dir_all(&log_dir).ok();
+            let mp = log_dir.join("ferr-manifest.json");
+            if let Err(e) = ferr_report::save_manifest(&manifest, &mp) {
+                tracing::error!(path = %dest_path.display(), "manifest not saved: {e}");
+            }
         }
     }
 
     // Exécuter les hooks post-copie injectés par l'appelant
     for hook in hooks {
         if let Err(e) = hook.on_copy_done(&manifest) {
-            tracing::error!("hook post-copie échoué : {e}");
+            tracing::error!("post-copy hook failed: {e}");
         }
     }
 
     // Éjection automatique
     if job.auto_eject && errors == 0 {
         if let Err(e) = eject_volume(&job.source) {
-            tracing::warn!("éjection échouée : {e}");
+            tracing::warn!("ejection failed: {e}");
         }
     }
 
@@ -776,11 +782,20 @@ pub fn run_copy(
 // Utilitaires internes
 // ---------------------------------------------------------------------------
 
-fn collect_files(dir: &Path) -> anyhow::Result<Vec<PathBuf>> {
+/// Retourne `(racine, fichiers)`.
+/// Fichier  → racine = parent,        fichiers = [path]         → dest/fichier.ext
+/// Dossier  → racine = parent(path),  fichiers = contenu récursif → dest/dossier/...
+fn resolve_source(path: &Path) -> anyhow::Result<(PathBuf, Vec<PathBuf>)> {
+    let root = path.parent()
+        .ok_or_else(|| anyhow::anyhow!("Unable to determine parent of {}", path.display()))?
+        .to_path_buf();
+    if path.is_file() {
+        return Ok((root, vec![path.to_path_buf()]));
+    }
     let mut files = Vec::new();
-    collect_recursive(dir, &mut files)?;
+    collect_recursive(path, &mut files)?;
     files.sort();
-    Ok(files)
+    Ok((root, files))
 }
 
 fn collect_recursive(dir: &Path, out: &mut Vec<PathBuf>) -> anyhow::Result<()> {
@@ -789,7 +804,7 @@ fn collect_recursive(dir: &Path, out: &mut Vec<PathBuf>) -> anyhow::Result<()> {
         let path = entry.path();
         if let Some(name) = path.file_name() {
             let n = name.to_string_lossy();
-            if n == "ferr-manifest.json" || n == "_par2" || n.starts_with("_ferr_logs_") || n.ends_with(".pdf") {
+            if n == "ferr-manifest.json" || n == "_par2" || n.starts_with("_ferr_logs_") {
                 continue;
             }
         }
@@ -803,18 +818,14 @@ fn collect_recursive(dir: &Path, out: &mut Vec<PathBuf>) -> anyhow::Result<()> {
 }
 
 fn dir_size(dir: &Path) -> anyhow::Result<u64> {
+    let (_, files) = resolve_source(dir)?;
     let mut total = 0u64;
-    for entry in std::fs::read_dir(dir)? {
-        let entry = entry?;
-        let path = entry.path();
-        if path.is_dir() {
-            total += dir_size(&path)?;
-        } else {
-            total += std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
-        }
+    for path in &files {
+        total += std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
     }
     Ok(total)
 }
+
 
 fn filesystem_root() -> PathBuf {
     #[cfg(windows)]
@@ -969,14 +980,14 @@ pub fn generate_manifest(
         HashAlgo::Sha256 => Box::new(ferr_hash::Sha256Hasher),
     };
 
-    let src_files = collect_files(source)?;
+    let (src_root, src_files) = resolve_source(source)?;
     let total_files = src_files.len();
     let mut file_entries: Vec<ferr_report::FileEntry> = Vec::new();
     let mut total_size_bytes = 0u64;
     let mut errors = 0usize;
 
     for (idx, src_file) in src_files.iter().enumerate() {
-        let rel = src_file.strip_prefix(source)?;
+        let rel = src_file.strip_prefix(&src_root)?;
         let (file_size, modified_at) = get_file_metadata(src_file);
 
         on_progress(CopyProgress {

@@ -248,7 +248,10 @@ const App = (() => {
         const s      = Settings.getAll();
         const args   = ['--hash', s.hashAlgorithm];
         if (s.par2Enabled) args.push('--par2', String(s.par2Percent));
-        if (s.videoMode)   args.push('--camera');
+        if (s.videoMode) {
+            args.push('--camera', '--rename', s.renameTemplate);
+            if (s.historyDedup) args.push('--dedup');
+        }
         if (s.ejectAfterCopy) args.push('--eject');
         try {
             await Bridge.startWatch(folder, dests, args);

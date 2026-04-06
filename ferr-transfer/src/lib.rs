@@ -159,7 +159,7 @@ pub fn copy_file(
             if let Err(e) = copy_metadata(src, &src_meta, &dest_path) {
                 tracing::warn!(
                     path = %dest_path.display(),
-                    "métadonnées non préservées : {e}"
+                    "metadata not preserved: {e}"
                 );
                 all_ok = false;
             }
@@ -211,7 +211,7 @@ fn write_verify_retry(
                     path: dest_path,
                     success: false,
                     retried: true,
-                    error: Some(format!("Première erreur: {first_err} | Retry: {e}")),
+                    error: Some(format!("First error: {first_err} | Retry: {e}")),
                 },
             }
         }
@@ -235,7 +235,7 @@ fn attempt_write_verify(
     let dest_hash = hasher.hash_file(dest_path)?;
     if dest_hash.hex != expected_hex {
         anyhow::bail!(
-            "Hash mismatch sur {} : attendu {} obtenu {}",
+            "Hash mismatch on {}: expected {} got {}",
             dest_path.display(),
             expected_hex,
             dest_hash.hex

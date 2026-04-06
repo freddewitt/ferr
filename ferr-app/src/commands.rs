@@ -114,7 +114,6 @@ pub async fn run_watch_start(
         cmd_args.extend(["--dest".into(), dest.clone()]);
     }
     cmd_args.extend_from_slice(&args);
-    cmd_args.extend(["--progress-format".into(), "machine".into()]);
 
     let sidecar = app
         .shell()

@@ -2,9 +2,8 @@ fn main() {
     // Déclarer le cfg custom pour éviter les warnings du compilateur.
     println!("cargo::rustc-check-cfg=cfg(par2_stub)");
 
-    // Le stub peut être forcé via variable d'environnement (tests CI sans par2 installé).
     if std::env::var("FERR_PAR2_STUB").is_ok() {
-        println!("cargo:warning=ferr-par2: FERR_PAR2_STUB détecté — stub activé");
+        println!("cargo:warning=ferr-par2: FERR_PAR2_STUB detected — stub enabled");
         println!("cargo:rustc-cfg=par2_stub");
         return;
     }
@@ -29,13 +28,13 @@ fn main() {
 
     if found {
         println!(
-            "cargo:warning=ferr-par2: binaire par2 détecté — \
-             implémentation subprocess activée"
+            "cargo:warning=ferr-par2: par2 binary detected — \
+             subprocess implementation enabled"
         );
     } else {
         println!(
-            "cargo:warning=ferr-par2: par2 introuvable à la compilation. \
-             Installez par2cmdline pour activer la génération PAR2 à l'exécution \
+            "cargo:warning=ferr-par2: par2 not found at compile time. \
+             Install par2cmdline to enable PAR2 generation at runtime \
              (brew install par2 / apt install par2 / winget install par2cmdline)."
         );
     }
