@@ -119,18 +119,22 @@ jobs:
             target: x86_64-unknown-linux-gnu
             binary: ferr
             archive: ferr-linux-x86_64.tar.gz
+            bundle_ext: "AppImage"
           - os: macos-latest
             target: aarch64-apple-darwin
             binary: ferr
             archive: ferr-macos-aarch64.tar.gz
+            bundle_ext: "dmg"
           - os: macos-13
             target: x86_64-apple-darwin
             binary: ferr
             archive: ferr-macos-x86_64.tar.gz
+            bundle_ext: "dmg"
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             binary: ferr.exe
             archive: ferr-windows-x86_64.zip
+            bundle_ext: "msi"
 
     steps:
       - uses: actions/checkout@v4
@@ -148,26 +152,54 @@ jobs:
             target/
           key: ${{ runner.os }}-release-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Build release
+      - name: Install dependencies (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version 2.1.0 --locked
+
+      - name: Build CLI release
         run: cargo build --release --target ${{ matrix.target }} -p ferr-cli
+
+      - name: Build GUI release
+        run: |
+          cd ferr-app
+          cargo tauri build --target ${{ matrix.target }} --no-sign
 
       - name: Package (Linux / macOS)
         if: matrix.os != 'windows-latest'
         run: |
+          # Package CLI
           cd target/${{ matrix.target }}/release
           tar czf ${{ github.workspace }}/${{ matrix.archive }} ${{ matrix.binary }}
+          
+          # Find and Move GUI Bundle
+          cd ${{ github.workspace }}
+          find ferr-app/target/${{ matrix.target }}/release/bundle -name "*.${{ matrix.bundle_ext }}" -exec mv {} ./ferr-gui-${{ matrix.target }}.${{ matrix.bundle_ext }} \;
 
       - name: Package (Windows)
         if: matrix.os == 'windows-latest'
         shell: pwsh
         run: |
+          # Package CLI
           Compress-Archive `
             -Path "target/${{ matrix.target }}/release/${{ matrix.binary }}" `
             -DestinationPath "${{ matrix.archive }}"
+          
+          # Find and Move GUI Bundle
+          $bundle = Get-ChildItem -Path "ferr-app/target/${{ matrix.target }}/release/bundle" -Recurse -Filter "*.${{ matrix.bundle_ext }}" | Select-Object -First 1
+          if ($bundle) {
+            Move-Item -Path $bundle.FullName -Destination "./ferr-gui-${{ matrix.target }}.${{ matrix.bundle_ext }}"
+          }
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ matrix.archive }}
+          files: |
+            ${{ matrix.archive }}
+            ferr-gui-*.*
           generate_release_notes: true
-          fail_on_unmatched_files: true
+          fail_on_unmatched_files: false
