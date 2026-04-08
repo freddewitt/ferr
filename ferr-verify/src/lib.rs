@@ -55,7 +55,9 @@ pub fn verify_dirs(
     // root so relative paths are just filenames, without the folder name prefix.
     // e.g. verify_dirs(source/test, cible/test) → checks cible/test/file.ext
     let (_, src_files) = resolve_source(src)?;
-    let src_root = if src.is_dir() { src.to_path_buf() } else {
+    let src_root = if src.is_dir() {
+        src.to_path_buf()
+    } else {
         src.parent().unwrap_or(src).to_path_buf()
     };
 
@@ -129,7 +131,8 @@ pub fn verify_manifest(
 /// Dossier  → racine = path,       fichiers = contenu récursif → dest/fichier.ext
 fn resolve_source(path: &Path) -> anyhow::Result<(PathBuf, Vec<PathBuf>)> {
     if path.is_file() {
-        let root = path.parent()
+        let root = path
+            .parent()
             .ok_or_else(|| anyhow::anyhow!("Unable to determine parent of {}", path.display()))?
             .to_path_buf();
         return Ok((root, vec![path.to_path_buf()]));
@@ -143,10 +146,19 @@ fn resolve_source(path: &Path) -> anyhow::Result<(PathBuf, Vec<PathBuf>)> {
 }
 
 fn is_system_noise(name: &str) -> bool {
-    matches!(name,
-        ".DS_Store" | ".localized" | ".Spotlight-V100" | ".fseventsd"
-        | ".Trashes" | ".TemporaryItems" | "Thumbs.db" | "desktop.ini"
-        | ".AppleDouble" | ".AppleDB" | ".AppleDesktop"
+    matches!(
+        name,
+        ".DS_Store"
+            | ".localized"
+            | ".Spotlight-V100"
+            | ".fseventsd"
+            | ".Trashes"
+            | ".TemporaryItems"
+            | "Thumbs.db"
+            | "desktop.ini"
+            | ".AppleDouble"
+            | ".AppleDB"
+            | ".AppleDesktop"
     ) || name.starts_with("._")
 }
 
@@ -734,7 +746,10 @@ mod cert_scan_tests {
 
         let report = scan_bitrot_cert(&base, &cert, &XxHasher, None, |_| {}).unwrap();
         assert_eq!(report.corrupted.len(), 1, "Corruption not detected");
-        assert!(report.corrupted[0].path.to_string_lossy().contains("clip.dat"));
+        assert!(report.corrupted[0]
+            .path
+            .to_string_lossy()
+            .contains("clip.dat"));
 
         std::fs::remove_dir_all(&base).ok();
     }

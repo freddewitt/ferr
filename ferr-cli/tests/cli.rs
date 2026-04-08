@@ -74,7 +74,7 @@ fn copy_basic() {
         .arg(&src)
         .arg(&dst)
         .arg("--no-notify")
-        .arg("--no-pdf")
+        .arg("--report")
         .arg("--quiet"));
 
     assert!(
@@ -84,10 +84,12 @@ fn copy_basic() {
         stderr(&out)
     );
 
-    // Les 4 fichiers existent à la destination
+    // Les 4 fichiers existent à la destination (dans le sous-dossier src)
+    let src_folder_name = src.file_name().unwrap();
+    let dst_data = dst.join(src_folder_name);
     for i in 0..4 {
         assert!(
-            dst.join(format!("clip{i:03}.dat")).exists(),
+            dst_data.join(format!("clip{i:03}.dat")).exists(),
             "clip{i:03}.dat absent de la destination"
         );
     }
@@ -129,8 +131,9 @@ fn copy_dry_run_writes_nothing() {
     }
 
     let s = stdout(&out);
+    let s_lower = s.to_lowercase();
     assert!(
-        s.contains("dry-run") || s.contains("Fichiers"),
+        s_lower.contains("dry-run") || s_lower.contains("fichiers"),
         "Sortie dry-run inattendue : {s}"
     );
 
@@ -148,13 +151,13 @@ fn verify_ok_from_manifest() {
     let dst = tmp("verify_dst");
     make_source(&src, 3, 1024);
 
-    // Copie d'abord
+    // Copie d'abord (avec --report)
     run(ferr()
         .arg("copy")
         .arg(&src)
         .arg(&dst)
         .arg("--no-notify")
-        .arg("--no-pdf")
+        .arg("--report")
         .arg("--quiet"));
 
     let manifest = ferr_core::find_manifest_path(&dst).unwrap();
@@ -183,11 +186,14 @@ fn verify_detects_corruption() {
         .arg(&src)
         .arg(&dst)
         .arg("--no-notify")
-        .arg("--no-pdf")
+        .arg("--report")
         .arg("--quiet"));
 
+    let src_folder_name = src.file_name().unwrap();
+    let dst_data = dst.join(src_folder_name);
+
     // Corrompre un fichier
-    let file = dst.join("clip000.dat");
+    let file = dst_data.join("clip000.dat");
     let mut data = std::fs::read(&file).unwrap();
     data[0] ^= 0xFF;
     std::fs::write(&file, &data).unwrap();
@@ -219,7 +225,7 @@ fn scan_clean_returns_zero() {
         .arg(&src)
         .arg(&dst)
         .arg("--no-notify")
-        .arg("--no-pdf")
+        .arg("--report")
         .arg("--quiet"));
 
     let manifest = ferr_core::find_manifest_path(&dst).unwrap();
@@ -252,11 +258,13 @@ fn scan_detects_bitrot() {
         .arg(&src)
         .arg(&dst)
         .arg("--no-notify")
-        .arg("--no-pdf")
+        .arg("--report")
         .arg("--quiet"));
 
     // Bit rot in-place
-    let file = dst.join("clip001.dat");
+    let src_folder_name = src.file_name().unwrap();
+    let dst_data = dst.join(src_folder_name);
+    let file = dst_data.join("clip001.dat");
     let mut data = std::fs::read(&file).unwrap();
     data[200] ^= 0xAB;
     std::fs::write(&file, &data).unwrap();
@@ -295,7 +303,7 @@ fn export_ale_creates_file() {
         .arg(&src)
         .arg(&dst)
         .arg("--no-notify")
-        .arg("--no-pdf")
+        .arg("--report")
         .arg("--quiet"));
 
     let manifest = ferr_core::find_manifest_path(&dst).unwrap();
@@ -334,7 +342,7 @@ fn export_csv_creates_file() {
         .arg(&src)
         .arg(&dst)
         .arg("--no-notify")
-        .arg("--no-pdf")
+        .arg("--report")
         .arg("--quiet"));
 
     let manifest = ferr_core::find_manifest_path(&dst).unwrap();
@@ -377,7 +385,7 @@ fn report_creates_pdf() {
         .arg(&src)
         .arg(&dst)
         .arg("--no-notify")
-        .arg("--no-pdf")
+        .arg("--report")
         .arg("--quiet"));
 
     let manifest = ferr_core::find_manifest_path(&dst).unwrap();
@@ -482,7 +490,7 @@ fn history_records_session() {
         .arg(&src)
         .arg(&dst)
         .arg("--no-notify")
-        .arg("--no-pdf")
+        .arg("--report")
         .arg("--quiet")
         .output()
         .unwrap();
@@ -524,7 +532,6 @@ fn no_color_env_disables_ansi() {
         .arg(&src)
         .arg(&dst)
         .arg("--no-notify")
-        .arg("--no-pdf")
         .output()
         .unwrap();
 

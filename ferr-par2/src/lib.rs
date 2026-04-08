@@ -134,7 +134,11 @@ fn collect_files_rec(dir: &Path, out: &mut Vec<PathBuf>) {
                 .file_name()
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_default();
-            if ext == "par2" || name == "ferr-manifest.json" || name.starts_with("_ferr_logs_") || ext == "pdf" {
+            if ext == "par2"
+                || name == "ferr-manifest.json"
+                || name.starts_with("_ferr_logs_")
+                || ext == "pdf"
+            {
                 continue;
             }
             out.push(path);
@@ -360,9 +364,9 @@ impl Par2View {
         //    retrouve "folder/file.dat".
         if target_dir.is_file() {
             // Cible = fichier unique : on le lie directement à la racine de la vue
-            let name = target_dir.file_name().ok_or_else(|| {
-                anyhow::anyhow!("Unable to get target file name")
-            })?;
+            let name = target_dir
+                .file_name()
+                .ok_or_else(|| anyhow::anyhow!("Unable to get target file name"))?;
             let _ = link_or_copy(target_dir, &view_path.join(name));
         } else {
             Self::link_dir_rec(target_dir, &view_path, target_dir)?;
@@ -395,7 +399,10 @@ impl Par2View {
 
             if path.is_dir() {
                 // Éviter de boucler ou de descendre dans _par2 si on est à la racine
-                let name = path.file_name().and_then(|n| n.to_str()).unwrap_or_default();
+                let name = path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or_default();
                 if name == "_par2" || name.starts_with("_ferr_logs_") {
                     continue;
                 }
@@ -432,14 +439,14 @@ mod tests {
     fn generate_invalid_redundancy_below_1() {
         let result = generate(Path::new("/tmp"), Path::new("/tmp"), 0, |_| {});
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("entre 1 et 40"));
+        assert!(result.unwrap_err().to_string().contains("between 1 and 40"));
     }
 
     #[test]
     fn generate_invalid_redundancy_above_40() {
         let result = generate(Path::new("/tmp"), Path::new("/tmp"), 41, |_| {});
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("entre 1 et 40"));
+        assert!(result.unwrap_err().to_string().contains("between 1 and 40"));
     }
 
     #[test]

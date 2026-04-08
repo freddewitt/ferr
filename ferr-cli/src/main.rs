@@ -99,7 +99,7 @@ enum Commands {
     Scan {
         dest: PathBuf,
         /// Override auto-detection: path to .ferrcert or legacy ferr-manifest.json
-        #[arg(long)]
+        #[arg(long = "manifest", alias = "cert")]
         cert_or_manifest: Option<PathBuf>,
         #[arg(long)]
         since: Option<String>,
@@ -533,7 +533,10 @@ fn cmd_copy(args: CopyArgs) -> anyhow::Result<i32> {
             let space_ok = dry_report.space_checks.iter().all(|c| c.ok);
             let space_err = if space_ok { 0 } else { 1 };
             for (i, f) in dry_report.files.iter().enumerate() {
-                let name = f.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                let name = f
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default();
                 println!(
                     "PROGRESS:{}/{total}|{}/{files}|300 MB/s|{}",
                     i + 1,
@@ -553,9 +556,15 @@ fn cmd_copy(args: CopyArgs) -> anyhow::Result<i32> {
                 style("Dry-run mode — no files written").yellow().bold()
             );
             println!("  Files       : {}", dry_report.total_files);
-            println!("  Size        : {}", human_size(dry_report.total_size_bytes));
+            println!(
+                "  Size        : {}",
+                human_size(dry_report.total_size_bytes)
+            );
             println!("  PAR2 est.   : {}", human_size(dry_report.par2_size_bytes));
-            println!("  Duration est.: {}s (at 300 MB/s)", dry_report.estimated_secs);
+            println!(
+                "  Duration est.: {}s (at 300 MB/s)",
+                dry_report.estimated_secs
+            );
             for check in &dry_report.space_checks {
                 if check.ok {
                     println!(
@@ -586,10 +595,10 @@ fn cmd_copy(args: CopyArgs) -> anyhow::Result<i32> {
     if machine_mode {
         // ── Machine-readable mode ──────────────────────────────────────────
         let file_count = Arc::new(AtomicUsize::new(0));
-        let file_count  = Arc::clone(&file_count);
+        let file_count = Arc::clone(&file_count);
         let error_count = Arc::new(AtomicUsize::new(0));
         let on_progress = {
-            let file_count  = Arc::clone(&file_count);
+            let file_count = Arc::clone(&file_count);
             let error_count = Arc::clone(&error_count);
             move |p: ferr_core::CopyProgress| {
                 if matches!(p.phase, ferr_core::CopyPhase::Done) {
@@ -632,10 +641,7 @@ fn cmd_copy(args: CopyArgs) -> anyhow::Result<i32> {
 
         println!(
             "COMPLETE:{}|{}|{}|{}",
-            manifest.total_files,
-            manifest.total_size_bytes,
-            errors,
-            manifest_path,
+            manifest.total_files, manifest.total_size_bytes, errors, manifest_path,
         );
     } else {
         // ── Human mode (indicatif) ─────────────────────────────────────────
@@ -775,7 +781,9 @@ fn cmd_verify(cert_or_dir: PathBuf, dest: PathBuf, quiet: bool) -> anyhow::Resul
         let hasher: Box<dyn ferr_hash::Hasher> = Box::new(ferr_hash::XxHasher);
         let bar = make_spinner("Verifying…", quiet);
         let report = ferr_verify::verify_dirs(&cert_or_dir, &dest, hasher.as_ref())?;
-        if let Some(b) = &bar { b.finish_and_clear(); }
+        if let Some(b) = &bar {
+            b.finish_and_clear();
+        }
         return display_verify_report(&report, quiet);
     }
 
@@ -791,7 +799,9 @@ fn cmd_verify(cert_or_dir: PathBuf, dest: PathBuf, quiet: bool) -> anyhow::Resul
         let bar = make_spinner("Verifying…", quiet);
         let m = ferr_report::load_manifest(&cert_or_dir)?;
         let report = ferr_verify::verify_manifest(&m, &dest, hasher.as_ref())?;
-        if let Some(b) = &bar { b.finish_and_clear(); }
+        if let Some(b) = &bar {
+            b.finish_and_clear();
+        }
         return display_verify_report(&report, quiet);
     }
 
@@ -804,39 +814,67 @@ fn cmd_verify(cert_or_dir: PathBuf, dest: PathBuf, quiet: bool) -> anyhow::Resul
 fn verify_via_cert(cert_path: &PathBuf, dest: &PathBuf, quiet: bool) -> anyhow::Result<i32> {
     let bar = make_spinner("Verifying certificate…", quiet);
     let result = ferr_cert::cert_verify(cert_path, dest, quiet)?;
-    if let Some(b) = &bar { b.finish_and_clear(); }
+    if let Some(b) = &bar {
+        b.finish_and_clear();
+    }
 
     if !quiet {
         let result_label = match result.result {
             ferr_cert::CertResult::Pass => style("PASS ✓").green().bold().to_string(),
-            ferr_cert::CertResult::PassWithMinor => style("PASS_WITH_MINOR").yellow().bold().to_string(),
+            ferr_cert::CertResult::PassWithMinor => {
+                style("PASS_WITH_MINOR").yellow().bold().to_string()
+            }
             ferr_cert::CertResult::Fail => style("FAIL ✗").red().bold().to_string(),
         };
         println!("\n  Result: {result_label}");
         println!(
             "  {} files checked  {} dirs checked  {} issue(s)",
-            result.checked_files, result.checked_dirs, result.issues.len()
+            result.checked_files,
+            result.checked_dirs,
+            result.issues.len()
         );
 
-        let criticals: Vec<_> = result.issues.iter()
-            .filter(|i| i.severity == ferr_cert::IssueSeverity::Critical).collect();
-        let minors: Vec<_> = result.issues.iter()
-            .filter(|i| i.severity == ferr_cert::IssueSeverity::Minor).collect();
+        let criticals: Vec<_> = result
+            .issues
+            .iter()
+            .filter(|i| i.severity == ferr_cert::IssueSeverity::Critical)
+            .collect();
+        let minors: Vec<_> = result
+            .issues
+            .iter()
+            .filter(|i| i.severity == ferr_cert::IssueSeverity::Minor)
+            .collect();
 
         for issue in &criticals {
-            println!("  {} {} — {}", style("CRITICAL").red().bold(), issue.path, style(&issue.detail).dim());
+            println!(
+                "  {} {} — {}",
+                style("CRITICAL").red().bold(),
+                issue.path,
+                style(&issue.detail).dim()
+            );
         }
         for issue in &minors {
-            println!("  {} {} — {}", style("MINOR").yellow(), issue.path, style(&issue.detail).dim());
+            println!(
+                "  {} {} — {}",
+                style("MINOR").yellow(),
+                issue.path,
+                style(&issue.detail).dim()
+            );
         }
     }
 
-    let has_missing = result.issues.iter().any(|i| matches!(
-        i.kind, ferr_cert::IssueKind::MissingFile | ferr_cert::IssueKind::MissingDir
-    ));
-    let has_corrupted = result.issues.iter().any(|i| matches!(
-        i.kind, ferr_cert::IssueKind::CorruptedFile | ferr_cert::IssueKind::SizeMismatch
-    ));
+    let has_missing = result.issues.iter().any(|i| {
+        matches!(
+            i.kind,
+            ferr_cert::IssueKind::MissingFile | ferr_cert::IssueKind::MissingDir
+        )
+    });
+    let has_corrupted = result.issues.iter().any(|i| {
+        matches!(
+            i.kind,
+            ferr_cert::IssueKind::CorruptedFile | ferr_cert::IssueKind::SizeMismatch
+        )
+    });
 
     Ok(match result.result {
         ferr_cert::CertResult::Pass => 0,
@@ -854,7 +892,10 @@ fn display_verify_report(report: &ferr_verify::VerifyReport, quiet: bool) -> any
         println!(
             "\n  {} {} ok  {} missing  {} corrupted  ({:.1}s)",
             style("Result:").bold(),
-            report.ok.len(), report.missing.len(), report.corrupted.len(), report.duration_secs
+            report.ok.len(),
+            report.missing.len(),
+            report.corrupted.len(),
+            report.duration_secs
         );
         for p in &report.missing {
             println!("  {} {}", style("MISSING").yellow(), p.display());
@@ -988,7 +1029,12 @@ fn scan_via_cert(
 
     let report = ferr_verify::scan_bitrot_cert(dest, &cert, hasher.as_ref(), since_dt, |p| {
         if let Some(b) = &bar {
-            b.set_message(format!("[{}/{}] {}", p.scanned, p.total, p.current.display()));
+            b.set_message(format!(
+                "[{}/{}] {}",
+                p.scanned,
+                p.total,
+                p.current.display()
+            ));
         }
     })?;
 
@@ -1000,10 +1046,16 @@ fn scan_via_cert(
         println!("\n  Scan completed on {}", style(&report.scan_date).dim());
         println!(
             "  {} scanned  {} skipped  {} corrupted",
-            report.scanned, report.skipped, report.corrupted.len()
+            report.scanned,
+            report.skipped,
+            report.corrupted.len()
         );
         for entry in &report.corrupted {
-            println!("  {} {}", style("BIT ROT").red().bold(), entry.path.display());
+            println!(
+                "  {} {}",
+                style("BIT ROT").red().bold(),
+                entry.path.display()
+            );
             println!("     expected: {}", style(&entry.expected_hash).dim());
             println!("     actual  : {}", style(&entry.actual_hash).red());
         }
@@ -1028,7 +1080,12 @@ fn scan_via_manifest(
 
     let report = ferr_verify::scan_bitrot(dest, &manifest, hasher.as_ref(), since_dt, |p| {
         if let Some(b) = &bar {
-            b.set_message(format!("[{}/{}] {}", p.scanned, p.total, p.current.display()));
+            b.set_message(format!(
+                "[{}/{}] {}",
+                p.scanned,
+                p.total,
+                p.current.display()
+            ));
         }
     })?;
 
@@ -1040,10 +1097,16 @@ fn scan_via_manifest(
         println!("\n  Scan completed on {}", style(&report.scan_date).dim());
         println!(
             "  {} scanned  {} skipped  {} corrupted",
-            report.scanned, report.skipped, report.corrupted.len()
+            report.scanned,
+            report.skipped,
+            report.corrupted.len()
         );
         for entry in &report.corrupted {
-            println!("  {} {}", style("BIT ROT").red().bold(), entry.path.display());
+            println!(
+                "  {} {}",
+                style("BIT ROT").red().bold(),
+                entry.path.display()
+            );
             println!("     expected: {}", style(&entry.expected_hash).dim());
             println!("     actual  : {}", style(&entry.actual_hash).red());
         }
@@ -1187,7 +1250,11 @@ fn cmd_report(manifest_path: PathBuf, output: Option<PathBuf>) -> anyhow::Result
     let manifest = ferr_report::load_manifest(&manifest_path)?;
     let output = output.unwrap_or_else(|| manifest_path.with_extension("pdf"));
     ferr_pdf::generate_report(&manifest, &output)?;
-    println!("  {} PDF generated: {}", style("✓").green(), output.display());
+    println!(
+        "  {} PDF generated: {}",
+        style("✓").green(),
+        output.display()
+    );
     Ok(0)
 }
 
@@ -1515,7 +1582,11 @@ fn cmd_cert(action: CertAction) -> anyhow::Result<i32> {
                     "PASS_WITH_MINOR" => style(ev.result.as_str()).yellow().to_string(),
                     _ => style(ev.result.as_str()).red().to_string(),
                 };
-                let ts = if ev.at.len() >= 19 { &ev.at[..19] } else { &ev.at };
+                let ts = if ev.at.len() >= 19 {
+                    &ev.at[..19]
+                } else {
+                    &ev.at
+                };
                 println!(
                     "  {:>2}. [{}] {} — {}",
                     i + 1,
@@ -1530,9 +1601,7 @@ fn cmd_cert(action: CertAction) -> anyhow::Result<i32> {
                             ferr_cert::IssueSeverity::Critical => {
                                 style("CRITICAL").red().to_string()
                             }
-                            ferr_cert::IssueSeverity::Minor => {
-                                style("MINOR").yellow().to_string()
-                            }
+                            ferr_cert::IssueSeverity::Minor => style("MINOR").yellow().to_string(),
                         };
                         println!("      {} {}", sev, issue.path);
                     }
@@ -1541,10 +1610,7 @@ fn cmd_cert(action: CertAction) -> anyhow::Result<i32> {
 
             println!("  {sep}");
             if is_valid {
-                println!(
-                    "  {} Certificate integrity: OK",
-                    style("✓").green().bold()
-                );
+                println!("  {} Certificate integrity: OK", style("✓").green().bold());
                 Ok(0)
             } else {
                 println!(

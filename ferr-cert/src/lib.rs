@@ -180,11 +180,7 @@ pub enum IssueKind {
 /// `{label}_{YYYYMMDD}_{HHMMSS}.ferrcert`.
 ///
 /// Retourne le chemin du fichier créé.
-pub fn cert_create(
-    src: &Path,
-    output: Option<&Path>,
-    hash_algo: HashAlgo,
-) -> Result<PathBuf> {
+pub fn cert_create(src: &Path, output: Option<&Path>, hash_algo: HashAlgo) -> Result<PathBuf> {
     if !src.is_dir() {
         return Err(CertError::NotADirectory(src.display().to_string()).into());
     }
@@ -205,8 +201,8 @@ pub fn cert_create(
     let id_short: String = id_hash.iter().take(4).map(|b| format!("{b:02x}")).collect();
     let id = format!("fcert_{date_str}_{time_str}_{id_short}");
 
-    let (tree, summary) = build_tree(src, &hash_algo)
-        .with_context(|| format!("Failed to scan {}", src.display()))?;
+    let (tree, summary) =
+        build_tree(src, &hash_algo).with_context(|| format!("Failed to scan {}", src.display()))?;
 
     let hostname = get_hostname();
     let by = format!("ferr {}", env!("CARGO_PKG_VERSION"));
@@ -252,8 +248,7 @@ pub fn cert_create(
         None => src.join(format!("{label}_{date_str}_{time_str}.ferrcert")),
     };
 
-    let json = serde_json::to_string_pretty(&cert)
-        .context("Failed to serialize certificate")?;
+    let json = serde_json::to_string_pretty(&cert).context("Failed to serialize certificate")?;
     std::fs::write(&out_path, &json)
         .with_context(|| format!("Cannot write certificate to {}", out_path.display()))?;
 
@@ -265,11 +260,7 @@ pub fn cert_create(
 /// Vérifie d'abord l'intégrité du cert lui-même (cert_hash), puis compare
 /// l'arborescence et les hashes. Ajoute automatiquement un event "verified"
 /// dans le cert après la vérification.
-pub fn cert_verify(
-    cert_path: &Path,
-    target: &Path,
-    _quiet: bool,
-) -> Result<CertVerifyResult> {
+pub fn cert_verify(cert_path: &Path, target: &Path, _quiet: bool) -> Result<CertVerifyResult> {
     // 1. Intégrité du cert
     let cert = cert_load(cert_path)?;
     if !check_integrity_of(&cert)? {
@@ -323,19 +314,14 @@ pub fn cert_verify(
                 });
             }
             Some(actual_path) => {
-                let actual_size = std::fs::metadata(actual_path)
-                    .map(|m| m.len())
-                    .unwrap_or(0);
+                let actual_size = std::fs::metadata(actual_path).map(|m| m.len()).unwrap_or(0);
 
                 if actual_size != *exp_size {
                     issues.push(CertIssue {
                         severity: IssueSeverity::Critical,
                         kind: IssueKind::SizeMismatch,
                         path: rel.clone(),
-                        detail: format!(
-                            "Expected {} bytes, found {}",
-                            exp_size, actual_size
-                        ),
+                        detail: format!("Expected {} bytes, found {}", exp_size, actual_size),
                     });
                 } else {
                     match hasher.hash_file(actual_path) {
@@ -512,10 +498,14 @@ pub fn cert_append_event(cert_path: &Path, event: CertEvent) -> Result<()> {
     cert.events.push(event);
     sign_cert(&mut cert)?;
 
-    let json = serde_json::to_string_pretty(&cert)
-        .context("Failed to serialize updated certificate")?;
-    std::fs::write(cert_path, json)
-        .with_context(|| format!("Cannot write updated certificate to {}", cert_path.display()))?;
+    let json =
+        serde_json::to_string_pretty(&cert).context("Failed to serialize updated certificate")?;
+    std::fs::write(cert_path, json).with_context(|| {
+        format!(
+            "Cannot write updated certificate to {}",
+            cert_path.display()
+        )
+    })?;
 
     Ok(())
 }
@@ -796,7 +786,7 @@ mod tests {
         // Tamper with the cert file
         let mut content = fs::read_to_string(&cert_path).unwrap();
         content = content.replace("hello ferr", "TAMPERED"); // change a hash value
-        // Actually modify the cert_hash field directly to simulate tampering
+                                                             // Actually modify the cert_hash field directly to simulate tampering
         let cert = cert_load(&cert_path).unwrap();
         let mut tampered = cert.clone();
         tampered.events[0].detail = "TAMPERED".to_string();
@@ -858,12 +848,10 @@ mod tests {
 
         let result = cert_verify(&dst_cert, &dst, false).unwrap();
         assert_eq!(result.result, CertResult::Fail);
-        assert!(
-            result
-                .issues
-                .iter()
-                .any(|i| i.kind == IssueKind::MissingFile)
-        );
+        assert!(result
+            .issues
+            .iter()
+            .any(|i| i.kind == IssueKind::MissingFile));
 
         fs::remove_dir_all(&src).ok();
         fs::remove_dir_all(&dst).ok();
@@ -892,12 +880,10 @@ mod tests {
         let result = cert_verify(&dst_cert, &dst, false).unwrap();
         assert_eq!(result.result, CertResult::Fail);
         // SizeMismatch or CorruptedFile both indicate detected corruption
-        assert!(
-            result.issues.iter().any(|i| matches!(
-                i.kind,
-                IssueKind::CorruptedFile | IssueKind::SizeMismatch
-            ))
-        );
+        assert!(result
+            .issues
+            .iter()
+            .any(|i| matches!(i.kind, IssueKind::CorruptedFile | IssueKind::SizeMismatch)));
 
         fs::remove_dir_all(&src).ok();
         fs::remove_dir_all(&dst).ok();

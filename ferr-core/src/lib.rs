@@ -558,9 +558,8 @@ pub fn run_copy(
 
     let (src_root, src_files) = resolve_source(&job.source)?;
     // Séparer les fichiers de données des certs : seuls les données vont dans le manifest
-    let (cert_src_files, data_files): (Vec<PathBuf>, Vec<PathBuf>) = src_files
-        .into_iter()
-        .partition(|f| {
+    let (cert_src_files, data_files): (Vec<PathBuf>, Vec<PathBuf>) =
+        src_files.into_iter().partition(|f| {
             f.extension()
                 .map(|e| e.eq_ignore_ascii_case("ferrcert"))
                 .unwrap_or(false)
@@ -773,7 +772,11 @@ pub fn run_copy(
         role: Some("source".to_string()),
         source: Some(job.source.to_string_lossy().into_owned()),
         dest: Some(dest_strs.join(", ")),
-        result: if errors == 0 { "PASS".to_string() } else { "FAIL".to_string() },
+        result: if errors == 0 {
+            "PASS".to_string()
+        } else {
+            "FAIL".to_string()
+        },
         detail: format!(
             "{} files copied to {} destination(s)",
             total_files - errors,
@@ -886,7 +889,8 @@ pub fn run_copy(
 /// Fichier  → racine = parent,        fichiers = [path]          → dest/fichier.ext
 /// Dossier  → racine = parent(path),  fichiers = contenu récursif → dest/dossier/...
 fn resolve_source(path: &Path) -> anyhow::Result<(PathBuf, Vec<PathBuf>)> {
-    let root = path.parent()
+    let root = path
+        .parent()
         .ok_or_else(|| anyhow::anyhow!("Unable to determine parent of {}", path.display()))?
         .to_path_buf();
     if path.is_file() {
@@ -900,11 +904,20 @@ fn resolve_source(path: &Path) -> anyhow::Result<(PathBuf, Vec<PathBuf>)> {
 
 /// Returns true for macOS/system noise files that should never be copied or hashed.
 fn is_system_noise(name: &str) -> bool {
-    matches!(name,
-        ".DS_Store" | ".localized" | ".Spotlight-V100" | ".fseventsd"
-        | ".Trashes" | ".TemporaryItems" | "Thumbs.db" | "desktop.ini"
-        | ".AppleDouble" | ".AppleDB" | ".AppleDesktop"
-    ) || name.starts_with("._")  // AppleDouble resource forks
+    matches!(
+        name,
+        ".DS_Store"
+            | ".localized"
+            | ".Spotlight-V100"
+            | ".fseventsd"
+            | ".Trashes"
+            | ".TemporaryItems"
+            | "Thumbs.db"
+            | "desktop.ini"
+            | ".AppleDouble"
+            | ".AppleDB"
+            | ".AppleDesktop"
+    ) || name.starts_with("._") // AppleDouble resource forks
 }
 
 fn collect_recursive(dir: &Path, out: &mut Vec<PathBuf>) -> anyhow::Result<()> {
@@ -913,7 +926,9 @@ fn collect_recursive(dir: &Path, out: &mut Vec<PathBuf>) -> anyhow::Result<()> {
         let path = entry.path();
         if let Some(name) = path.file_name() {
             let n = name.to_string_lossy();
-            if n == "ferr-manifest.json" || n == "_par2" || n.starts_with("_ferr_logs_")
+            if n == "ferr-manifest.json"
+                || n == "_par2"
+                || n.starts_with("_ferr_logs_")
                 || is_system_noise(&n)
             {
                 continue;
@@ -960,7 +975,6 @@ fn dir_size(dir: &Path) -> anyhow::Result<u64> {
     }
     Ok(total)
 }
-
 
 fn filesystem_root() -> PathBuf {
     #[cfg(windows)]
@@ -1123,7 +1137,9 @@ pub fn generate_manifest(
             .map(|e| !e.eq_ignore_ascii_case("ferrcert"))
             .unwrap_or(true)
     });
-    let src_root = if source.is_dir() { source.to_path_buf() } else {
+    let src_root = if source.is_dir() {
+        source.to_path_buf()
+    } else {
         source.parent().unwrap_or(source).to_path_buf()
     };
     let total_files = src_files.len();
@@ -1238,7 +1254,7 @@ pub fn find_manifest_path(dest: &Path) -> Option<PathBuf> {
 }
 
 pub fn get_log_dir_name(manifest: &ferr_report::Manifest) -> anyhow::Result<String> {
-    let dt = chrono::DateTime::parse_from_rfc3339(&manifest.generated_at)?
-        .with_timezone(&chrono::Utc);
+    let dt =
+        chrono::DateTime::parse_from_rfc3339(&manifest.generated_at)?.with_timezone(&chrono::Utc);
     Ok(format!("_ferr_logs_{}", dt.format("%Y%m%d_%H%M%S")))
 }
