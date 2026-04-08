@@ -19,6 +19,8 @@ fn main() {
             commands::run_repair,
             commands::run_cert_create,
             commands::run_cert_verify,
+            commands::check_cert,
+            commands::run_cert_show,
             commands::run_export,
             commands::run_report,
             commands::get_history,

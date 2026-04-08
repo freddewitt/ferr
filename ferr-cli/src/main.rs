@@ -45,6 +45,7 @@ enum HashChoice {
 enum Commands {
     /// Copy files with hash verification
     Copy {
+        /// Source directory (directories only — not single files)
         src: PathBuf,
         dest: PathBuf,
         #[arg(long)]
@@ -73,7 +74,8 @@ enum Commands {
         no_notify: bool,
         #[arg(long)]
         pdf: bool,
-        #[arg(long)]
+        /// Save a ferr-manifest.json to the destination (legacy, kept for compatibility)
+        #[arg(long, hide = true)]
         report: bool,
         #[arg(long)]
         dry_run: bool,
@@ -83,20 +85,22 @@ enum Commands {
         #[arg(long, value_name = "FORMAT", default_value = "human")]
         progress_format: String,
     },
-    /// Verify file integrity against source or manifest
+    /// Verify file integrity against a .ferrcert, source directory, or legacy manifest
     Verify {
-        src_or_manifest: PathBuf,
+        /// Path to a .ferrcert, a directory (auto-detects cert), or a legacy .json manifest
+        cert_or_dir: PathBuf,
         dest: PathBuf,
         #[arg(long)]
         quiet: bool,
     },
     /// Repair corrupted files via PAR2
     Repair { manifest: PathBuf, dest: PathBuf },
-    /// Detect bit rot on a destination
+    /// Detect bit rot on a destination (uses .ferrcert if present, else legacy manifest)
     Scan {
         dest: PathBuf,
+        /// Override auto-detection: path to .ferrcert or legacy ferr-manifest.json
         #[arg(long)]
-        manifest: Option<PathBuf>,
+        cert_or_manifest: Option<PathBuf>,
         #[arg(long)]
         since: Option<String>,
         #[arg(long)]
@@ -201,9 +205,11 @@ enum HistoryAction {
 
 #[derive(Subcommand)]
 enum CertAction {
-    /// Create a certificate for a source directory
+    /// Certify a source directory (creates a .ferrcert at the root)
     Create {
+        /// Source directory (directories only — not single files)
         src: PathBuf,
+        /// Output path for the .ferrcert (default: <src>/<label>_<date>.ferrcert)
         #[arg(long)]
         output: Option<PathBuf>,
         #[arg(long, value_enum, default_value = "xxhash")]
@@ -211,12 +217,24 @@ enum CertAction {
         #[arg(long)]
         quiet: bool,
     },
-    /// Verify a received certificate against a destination
+    /// Verify a directory against a .ferrcert
     Verify {
+        /// Path to a .ferrcert file, or a directory containing one
         cert: PathBuf,
+        /// Target directory to verify
         dest: PathBuf,
         #[arg(long)]
         quiet: bool,
+    },
+    /// Show the event journal of a .ferrcert (and verify cert integrity)
+    Show {
+        /// Path to a .ferrcert file, or a directory containing one
+        cert_or_dir: PathBuf,
+    },
+    /// Check only the integrity of a .ferrcert (does not verify files)
+    Check {
+        /// Path to a .ferrcert file, or a directory containing one
+        cert_or_dir: PathBuf,
     },
 }
 
@@ -295,17 +313,17 @@ fn run(cli: Cli) -> anyhow::Result<i32> {
             progress_format,
         }),
         Commands::Verify {
-            src_or_manifest,
+            cert_or_dir,
             dest,
             quiet,
-        } => cmd_verify(src_or_manifest, dest, quiet),
+        } => cmd_verify(cert_or_dir, dest, quiet),
         Commands::Repair { manifest, dest } => cmd_repair(manifest, dest),
         Commands::Scan {
             dest,
-            manifest,
+            cert_or_manifest,
             since,
             quiet,
-        } => cmd_scan(dest, manifest, since, quiet),
+        } => cmd_scan(dest, cert_or_manifest, since, quiet),
         Commands::Watch {
             mount_point,
             dest,
@@ -451,6 +469,16 @@ fn cmd_copy(args: CopyArgs) -> anyhow::Result<i32> {
         quiet,
         progress_format,
     } = args;
+
+    if src.is_file() {
+        eprintln!(
+            "{} ferr copy only accepts directories as source — not a single file: {}",
+            style("Error:").red().bold(),
+            src.display()
+        );
+        return Ok(2);
+    }
+
     let machine_mode = progress_format == "machine";
     let mut destinations = vec![dest];
     if let Some(d) = dest2 {
@@ -714,33 +742,119 @@ fn cmd_copy(args: CopyArgs) -> anyhow::Result<i32> {
 // cmd_verify
 // ---------------------------------------------------------------------------
 
-fn cmd_verify(src_or_manifest: PathBuf, dest: PathBuf, quiet: bool) -> anyhow::Result<i32> {
-    let hasher: Box<dyn ferr_hash::Hasher> = Box::new(ferr_hash::XxHasher);
-    let bar = make_spinner("Verifying…", quiet);
-
-    let report = if src_or_manifest
+fn cmd_verify(cert_or_dir: PathBuf, dest: PathBuf, quiet: bool) -> anyhow::Result<i32> {
+    let is_ferrcert = cert_or_dir
+        .extension()
+        .map(|e| e.eq_ignore_ascii_case("ferrcert"))
+        .unwrap_or(false);
+    let is_json = cert_or_dir
         .extension()
         .map(|e| e.eq_ignore_ascii_case("json"))
-        .unwrap_or(false)
-    {
-        let m = ferr_report::load_manifest(&src_or_manifest)?;
-        ferr_verify::verify_manifest(&m, &dest, hasher.as_ref())?
-    } else {
-        ferr_verify::verify_dirs(&src_or_manifest, &dest, hasher.as_ref())?
-    };
+        .unwrap_or(false);
+    let is_dir = cert_or_dir.is_dir();
 
-    if let Some(b) = &bar {
-        b.finish_and_clear();
+    // Cas 1 : .ferrcert explicite
+    if is_ferrcert {
+        return verify_via_cert(&cert_or_dir, &dest, quiet);
     }
 
+    // Cas 2 : dossier → cherche le cert automatiquement
+    if is_dir {
+        if let Some(cert_path) = ferr_cert::find_cert(&cert_or_dir) {
+            return verify_via_cert(&cert_path, &dest, quiet);
+        }
+        // Pas de cert → comparaison par répertoire (legacy)
+        if !quiet {
+            eprintln!(
+                "  {} No .ferrcert found in {} — falling back to directory comparison.\n  \
+                 Run 'ferr cert create <dir>' to generate a certificate.",
+                style("Note:").yellow(),
+                cert_or_dir.display()
+            );
+        }
+        let hasher: Box<dyn ferr_hash::Hasher> = Box::new(ferr_hash::XxHasher);
+        let bar = make_spinner("Verifying…", quiet);
+        let report = ferr_verify::verify_dirs(&cert_or_dir, &dest, hasher.as_ref())?;
+        if let Some(b) = &bar { b.finish_and_clear(); }
+        return display_verify_report(&report, quiet);
+    }
+
+    // Cas 3 : manifest JSON legacy
+    if is_json {
+        if !quiet {
+            eprintln!(
+                "  {} JSON manifests are legacy — use 'ferr cert create' to generate a .ferrcert.",
+                style("Note:").yellow()
+            );
+        }
+        let hasher: Box<dyn ferr_hash::Hasher> = Box::new(ferr_hash::XxHasher);
+        let bar = make_spinner("Verifying…", quiet);
+        let m = ferr_report::load_manifest(&cert_or_dir)?;
+        let report = ferr_verify::verify_manifest(&m, &dest, hasher.as_ref())?;
+        if let Some(b) = &bar { b.finish_and_clear(); }
+        return display_verify_report(&report, quiet);
+    }
+
+    anyhow::bail!(
+        "Cannot verify: '{}' is not a .ferrcert, a directory, or a .json manifest.",
+        cert_or_dir.display()
+    )
+}
+
+fn verify_via_cert(cert_path: &PathBuf, dest: &PathBuf, quiet: bool) -> anyhow::Result<i32> {
+    let bar = make_spinner("Verifying certificate…", quiet);
+    let result = ferr_cert::cert_verify(cert_path, dest, quiet)?;
+    if let Some(b) = &bar { b.finish_and_clear(); }
+
+    if !quiet {
+        let result_label = match result.result {
+            ferr_cert::CertResult::Pass => style("PASS ✓").green().bold().to_string(),
+            ferr_cert::CertResult::PassWithMinor => style("PASS_WITH_MINOR").yellow().bold().to_string(),
+            ferr_cert::CertResult::Fail => style("FAIL ✗").red().bold().to_string(),
+        };
+        println!("\n  Result: {result_label}");
+        println!(
+            "  {} files checked  {} dirs checked  {} issue(s)",
+            result.checked_files, result.checked_dirs, result.issues.len()
+        );
+
+        let criticals: Vec<_> = result.issues.iter()
+            .filter(|i| i.severity == ferr_cert::IssueSeverity::Critical).collect();
+        let minors: Vec<_> = result.issues.iter()
+            .filter(|i| i.severity == ferr_cert::IssueSeverity::Minor).collect();
+
+        for issue in &criticals {
+            println!("  {} {} — {}", style("CRITICAL").red().bold(), issue.path, style(&issue.detail).dim());
+        }
+        for issue in &minors {
+            println!("  {} {} — {}", style("MINOR").yellow(), issue.path, style(&issue.detail).dim());
+        }
+    }
+
+    let has_missing = result.issues.iter().any(|i| matches!(
+        i.kind, ferr_cert::IssueKind::MissingFile | ferr_cert::IssueKind::MissingDir
+    ));
+    let has_corrupted = result.issues.iter().any(|i| matches!(
+        i.kind, ferr_cert::IssueKind::CorruptedFile | ferr_cert::IssueKind::SizeMismatch
+    ));
+
+    Ok(match result.result {
+        ferr_cert::CertResult::Pass => 0,
+        ferr_cert::CertResult::PassWithMinor => 1,
+        ferr_cert::CertResult::Fail => match (has_missing, has_corrupted) {
+            (true, false) => 2,
+            (false, true) => 3,
+            _ => 4,
+        },
+    })
+}
+
+fn display_verify_report(report: &ferr_verify::VerifyReport, quiet: bool) -> anyhow::Result<i32> {
     if !quiet {
         println!(
             "\n  {} {} ok  {} missing  {} corrupted  ({:.1}s)",
             style("Result:").bold(),
-            report.ok.len(),
-            report.missing.len(),
-            report.corrupted.len(),
-            report.duration_secs
+            report.ok.len(), report.missing.len(), report.corrupted.len(), report.duration_secs
         );
         for p in &report.missing {
             println!("  {} {}", style("MISSING").yellow(), p.display());
@@ -752,7 +866,6 @@ fn cmd_verify(src_or_manifest: PathBuf, dest: PathBuf, quiet: bool) -> anyhow::R
             println!("  {}", style("All OK ✓").green().bold());
         }
     }
-
     Ok(report.exit_code())
 }
 
@@ -793,32 +906,89 @@ fn cmd_repair(manifest: PathBuf, dest: PathBuf) -> anyhow::Result<i32> {
 
 fn cmd_scan(
     dest: PathBuf,
-    manifest_path: Option<PathBuf>,
+    cert_or_manifest: Option<PathBuf>,
     since: Option<String>,
     quiet: bool,
 ) -> anyhow::Result<i32> {
-    let manifest_path = manifest_path.unwrap_or_else(|| {
-        ferr_core::find_manifest_path(&dest).unwrap_or_else(|| dest.join("ferr-manifest.json"))
-    });
-
-    let manifest = ferr_report::load_manifest(&manifest_path)?;
-    let hasher: Box<dyn ferr_hash::Hasher> = Box::new(ferr_hash::XxHasher);
-
     let since_dt = since
         .as_deref()
         .map(|s| chrono::DateTime::parse_from_rfc3339(s).map(|d| d.with_timezone(&chrono::Utc)))
         .transpose()?;
 
+    // Résoudre la source de référence
+    let reference = if let Some(override_path) = cert_or_manifest {
+        // --cert-or-manifest explicite
+        if override_path
+            .extension()
+            .map(|e| e.eq_ignore_ascii_case("ferrcert"))
+            .unwrap_or(false)
+            || override_path.is_dir()
+        {
+            ScanReference::Cert(resolve_cert_path(&override_path)?)
+        } else {
+            ScanReference::Manifest(override_path)
+        }
+    } else {
+        // Auto-détection : cert d'abord, puis manifest legacy
+        if let Some(cert_path) = ferr_cert::find_cert(&dest) {
+            ScanReference::Cert(cert_path)
+        } else if let Some(manifest_path) = ferr_core::find_manifest_path(&dest) {
+            if !quiet {
+                eprintln!(
+                    "  {} No .ferrcert found — falling back to legacy ferr-manifest.json.",
+                    style("Note:").yellow()
+                );
+            }
+            ScanReference::Manifest(manifest_path)
+        } else {
+            anyhow::bail!(
+                "No .ferrcert or ferr-manifest.json found in {}.\n\
+                 Run 'ferr cert create <dir>' to generate a certificate.",
+                dest.display()
+            );
+        }
+    };
+
+    match reference {
+        ScanReference::Cert(cert_path) => scan_via_cert(&cert_path, &dest, since_dt, quiet),
+        ScanReference::Manifest(manifest_path) => {
+            scan_via_manifest(&manifest_path, &dest, since_dt, quiet)
+        }
+    }
+}
+
+enum ScanReference {
+    Cert(PathBuf),
+    Manifest(PathBuf),
+}
+
+fn scan_via_cert(
+    cert_path: &PathBuf,
+    dest: &PathBuf,
+    since_dt: Option<chrono::DateTime<chrono::Utc>>,
+    quiet: bool,
+) -> anyhow::Result<i32> {
+    let cert = ferr_cert::cert_load(cert_path)?;
+
+    if !ferr_cert::cert_check_integrity(cert_path)? {
+        eprintln!(
+            "  {} Certificate integrity check FAILED — cert may be tampered.\n  Path: {}",
+            style("Error:").red().bold(),
+            cert_path.display()
+        );
+        return Ok(2);
+    }
+
+    let hasher: Box<dyn ferr_hash::Hasher> = match cert.hash_algo.as_str() {
+        "sha256" => Box::new(ferr_hash::Sha256Hasher),
+        _ => Box::new(ferr_hash::XxHasher),
+    };
+
     let bar = make_spinner("Scanning for bit rot…", quiet);
 
-    let report = ferr_verify::scan_bitrot(&dest, &manifest, hasher.as_ref(), since_dt, |p| {
+    let report = ferr_verify::scan_bitrot_cert(dest, &cert, hasher.as_ref(), since_dt, |p| {
         if let Some(b) = &bar {
-            b.set_message(format!(
-                "[{}/{}] {}",
-                p.scanned,
-                p.total,
-                p.current.display()
-            ));
+            b.set_message(format!("[{}/{}] {}", p.scanned, p.total, p.current.display()));
         }
     })?;
 
@@ -830,16 +1000,50 @@ fn cmd_scan(
         println!("\n  Scan completed on {}", style(&report.scan_date).dim());
         println!(
             "  {} scanned  {} skipped  {} corrupted",
-            report.scanned,
-            report.skipped,
-            report.corrupted.len()
+            report.scanned, report.skipped, report.corrupted.len()
         );
         for entry in &report.corrupted {
-            println!(
-                "  {} {}",
-                style("BIT ROT").red().bold(),
-                entry.path.display()
-            );
+            println!("  {} {}", style("BIT ROT").red().bold(), entry.path.display());
+            println!("     expected: {}", style(&entry.expected_hash).dim());
+            println!("     actual  : {}", style(&entry.actual_hash).red());
+        }
+        if report.corrupted.is_empty() {
+            println!("  {}", style("No bit rot detected ✓").green().bold());
+        }
+    }
+
+    Ok(if report.corrupted.is_empty() { 0 } else { 1 })
+}
+
+fn scan_via_manifest(
+    manifest_path: &PathBuf,
+    dest: &PathBuf,
+    since_dt: Option<chrono::DateTime<chrono::Utc>>,
+    quiet: bool,
+) -> anyhow::Result<i32> {
+    let manifest = ferr_report::load_manifest(manifest_path)?;
+    let hasher: Box<dyn ferr_hash::Hasher> = Box::new(ferr_hash::XxHasher);
+
+    let bar = make_spinner("Scanning for bit rot…", quiet);
+
+    let report = ferr_verify::scan_bitrot(dest, &manifest, hasher.as_ref(), since_dt, |p| {
+        if let Some(b) = &bar {
+            b.set_message(format!("[{}/{}] {}", p.scanned, p.total, p.current.display()));
+        }
+    })?;
+
+    if let Some(b) = &bar {
+        b.finish_and_clear();
+    }
+
+    if !quiet {
+        println!("\n  Scan completed on {}", style(&report.scan_date).dim());
+        println!(
+            "  {} scanned  {} skipped  {} corrupted",
+            report.scanned, report.skipped, report.corrupted.len()
+        );
+        for entry in &report.corrupted {
+            println!("  {} {}", style("BIT ROT").red().bold(), entry.path.display());
             println!("     expected: {}", style(&entry.expected_hash).dim());
             println!("     actual  : {}", style(&entry.actual_hash).red());
         }
@@ -1193,96 +1397,183 @@ fn human_size(bytes: u64) -> String {
 // cmd_cert
 // ---------------------------------------------------------------------------
 
+/// Résout un chemin en .ferrcert : accepte un fichier .ferrcert ou un dossier
+/// (cherche automatiquement le .ferrcert à la racine).
+fn resolve_cert_path(path: &PathBuf) -> anyhow::Result<PathBuf> {
+    if path.is_file() {
+        if path
+            .extension()
+            .map(|e: &std::ffi::OsStr| e.eq_ignore_ascii_case("ferrcert"))
+            .unwrap_or(false)
+        {
+            Ok(path.to_path_buf())
+        } else {
+            anyhow::bail!(
+                "Not a .ferrcert file: {}\nUse 'ferr cert create <dir>' to generate one.",
+                path.display()
+            )
+        }
+    } else if path.is_dir() {
+        ferr_cert::find_cert(path).ok_or_else(|| {
+            anyhow::anyhow!(
+                "No .ferrcert found in {}.\nRun 'ferr cert create {}' to generate one,\nor 'ferr copy <src> <dest>' which creates it automatically.",
+                path.display(),
+                path.display()
+            )
+        })
+    } else {
+        anyhow::bail!("Path not found: {}", path.display())
+    }
+}
+
 fn cmd_cert(action: CertAction) -> anyhow::Result<i32> {
     match action {
+        // ── cert create ───────────────────────────────────────────────────
         CertAction::Create {
             src,
             output,
             hash,
             quiet,
         } => {
+            if src.is_file() {
+                eprintln!(
+                    "  {} ferr cert create only accepts directories.\n  To certify a single file, put it in a folder first.",
+                    style("Error:").red().bold()
+                );
+                return Ok(2);
+            }
+
             let (hash_algo, _) = hash_choice_to_algo(&hash);
             let bar = make_spinner("Generating certificate…", quiet);
 
-            let manifest = ferr_core::generate_manifest(&src, hash_algo, |_| {})?;
-            let cert_data = ferr_cert::pack(&manifest)?;
-
-            let out_path = output.unwrap_or_else(|| {
-                let name = src
-                    .file_name()
-                    .unwrap_or_else(|| std::ffi::OsStr::new("cert"))
-                    .to_string_lossy();
-                PathBuf::from(format!("{name}.ferrcert"))
-            });
-            std::fs::write(&out_path, cert_data)?;
+            let cert_path = ferr_cert::cert_create(&src, output.as_deref(), hash_algo)?;
 
             if let Some(b) = &bar {
                 b.finish_and_clear();
             }
+
             if !quiet {
+                let cert = ferr_cert::cert_load(&cert_path)?;
                 println!(
-                    "  {} Certificate generated: {}",
-                    style("✓").green(),
-                    out_path.display()
+                    "  {} Certificate: {}",
+                    style("✓").green().bold(),
+                    cert_path.display()
+                );
+                println!(
+                    "  {} {} files  {} dirs ({} empty)  {}",
+                    style("→").dim(),
+                    cert.summary.total_files,
+                    cert.summary.total_dirs,
+                    cert.summary.empty_dirs,
+                    human_size(cert.summary.total_bytes),
+                );
+                println!(
+                    "  {} cert_hash: {}…",
+                    style("→").dim(),
+                    &cert.cert_hash[..cert.cert_hash.len().min(32)]
                 );
             }
             Ok(0)
         }
+
+        // ── cert verify ───────────────────────────────────────────────────
         CertAction::Verify { cert, dest, quiet } => {
-            let bar = make_spinner("Verifying certificate…", quiet);
-            let cert_data = std::fs::read_to_string(&cert)?;
+            let cert_path = resolve_cert_path(&cert)?;
+            verify_via_cert(&cert_path, &dest, quiet)
+        }
 
-            match ferr_cert::unpack(&cert_data) {
-                Ok(manifest) => {
-                    let is_sha256 =
-                        manifest.files.first().map(|f| f.hash_algo.as_str()) == Some("sha256");
-                    let hasher: Box<dyn ferr_hash::Hasher> = if is_sha256 {
-                        Box::new(ferr_hash::Sha256Hasher)
-                    } else {
-                        Box::new(ferr_hash::XxHasher)
-                    };
+        // ── cert show ─────────────────────────────────────────────────────
+        CertAction::Show { cert_or_dir } => {
+            let cert_path = resolve_cert_path(&cert_or_dir)?;
+            let cert = ferr_cert::cert_load(&cert_path)?;
+            let is_valid = ferr_cert::cert_check_integrity(&cert_path)?;
 
-                    let report = ferr_verify::verify_manifest(&manifest, &dest, hasher.as_ref())?;
-                    if let Some(b) = &bar {
-                        b.finish_and_clear();
+            println!();
+            println!("  Certificate : {}", cert_path.display());
+            println!("  ID          : {}", cert.id);
+            println!("  Source      : {}", cert.source.path);
+            println!("  Label       : {}", cert.source.label);
+            println!("  Certified   : {}", cert.source.certified_at);
+            println!("  By          : {}", cert.source.certified_by);
+            println!("  Hash algo   : {}", cert.hash_algo);
+            println!("  Files       : {}", cert.summary.total_files);
+            println!(
+                "  Dirs        : {} ({} empty)",
+                cert.summary.total_dirs, cert.summary.empty_dirs
+            );
+            println!("  Size        : {}", human_size(cert.summary.total_bytes));
+            println!();
+
+            let sep = "─".repeat(70);
+            println!("  {sep}");
+            println!("  Events ({})", cert.events.len());
+            println!("  {sep}");
+
+            for (i, ev) in cert.events.iter().enumerate() {
+                let result_s = match ev.result.as_str() {
+                    "PASS" => style(ev.result.as_str()).green().to_string(),
+                    "PASS_WITH_MINOR" => style(ev.result.as_str()).yellow().to_string(),
+                    _ => style(ev.result.as_str()).red().to_string(),
+                };
+                let ts = if ev.at.len() >= 19 { &ev.at[..19] } else { &ev.at };
+                println!(
+                    "  {:>2}. [{}] {} — {}",
+                    i + 1,
+                    ts,
+                    style(&ev.kind).bold(),
+                    result_s
+                );
+                println!("      {}", style(&ev.detail).dim());
+                if !ev.issues.is_empty() {
+                    for issue in &ev.issues {
+                        let sev = match issue.severity {
+                            ferr_cert::IssueSeverity::Critical => {
+                                style("CRITICAL").red().to_string()
+                            }
+                            ferr_cert::IssueSeverity::Minor => {
+                                style("MINOR").yellow().to_string()
+                            }
+                        };
+                        println!("      {} {}", sev, issue.path);
                     }
-
-                    if !quiet {
-                        println!(
-                            "\n  {} {} ok  {} missing  {} corrupted",
-                            style("Result:").bold(),
-                            report.ok.len(),
-                            report.missing.len(),
-                            report.corrupted.len(),
-                        );
-                        for p in &report.missing {
-                            println!("  {} {}", style("MISSING").yellow(), p.display());
-                        }
-                        for p in &report.corrupted {
-                            println!("  {} {}", style("CORRUPTED").red(), p.display());
-                        }
-                        if report.exit_code() == 0 {
-                            println!(
-                                "  {}",
-                                style("Certificate valid and content intact ✓")
-                                    .green()
-                                    .bold()
-                            );
-                        }
-                    }
-                    Ok(report.exit_code())
                 }
-                Err(e) => {
-                    if let Some(b) = &bar {
-                        b.finish_and_clear();
-                    }
-                    println!(
-                        "  {} Certificate has been tampered with or is invalid: {}",
-                        style("✗ Error:").red().bold(),
-                        e
-                    );
-                    Ok(4)
-                }
+            }
+
+            println!("  {sep}");
+            if is_valid {
+                println!(
+                    "  {} Certificate integrity: OK",
+                    style("✓").green().bold()
+                );
+                Ok(0)
+            } else {
+                println!(
+                    "  {} Certificate integrity: TAMPERED",
+                    style("✗").red().bold()
+                );
+                Ok(2)
+            }
+        }
+
+        // ── cert check ────────────────────────────────────────────────────
+        CertAction::Check { cert_or_dir } => {
+            let cert_path = resolve_cert_path(&cert_or_dir)?;
+            let is_valid = ferr_cert::cert_check_integrity(&cert_path)?;
+
+            if is_valid {
+                println!(
+                    "  {} Certificate integrity: OK  ({})",
+                    style("✓").green().bold(),
+                    cert_path.display()
+                );
+                Ok(0)
+            } else {
+                println!(
+                    "  {} Certificate integrity: TAMPERED  ({})",
+                    style("✗").red().bold(),
+                    cert_path.display()
+                );
+                Ok(2)
             }
         }
     }

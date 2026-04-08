@@ -123,9 +123,17 @@ const Bridge = (() => {
             ? new Promise(r => { setTimeout(() => { _completeCb?.(0); r(); }, 800); })
             : invoke('run_repair', { par2Index, targetFolder }),
 
-        certCreate: (folder, out) => DEV_MODE
+        certCreate: (folder) => DEV_MODE
             ? new Promise(r => { setTimeout(() => { _completeCb?.(0); r(); }, 600); })
-            : invoke('run_cert_create', { folder, outputPath: out }),
+            : invoke('run_cert_create', { folder }),
+
+        checkCert: (folder) => DEV_MODE
+            ? Promise.resolve('{"cert_hash":"mock","source":{"path":"' + folder + '"}}')
+            : invoke('check_cert', { folder }),
+
+        certShow: (certOrDir) => DEV_MODE
+            ? Promise.resolve()
+            : invoke('run_cert_show', { certOrDir }),
 
         certVerify: (cert, folder) => DEV_MODE
             ? new Promise(r => { setTimeout(() => { _progressCb?.('VERIFY_RESULT:OK|1|0|0'); _completeCb?.(0); r(); }, 700); })

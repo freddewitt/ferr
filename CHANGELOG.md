@@ -1,48 +1,75 @@
 # Changelog
 
-All notable changes to the **Ferr** project will be documented in this file.
+All notable changes to the **ferr** project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-04-08
+
+### Added
+- **Integrity Certificates v1.0** (`.ferrcert`): Complete redesign of the portable certificate format.
+    - **Self-Signing**: Certificates are now signed with an internal SHA-256 hash to prevent manual tampering.
+    - **Event History**: Tracks the certificate's lifecycle (creation, copies, verifications) with hostname and timestamp.
+    - **Hierarchy (Tree)**: Includes a full recursive map of the certified directory, including file sizes and hashes.
+    - **Empty Directory Tracking**: Improved tracking of empty folders to ensure destination parity.
+- **Improved CLI Commands**:
+    - `ferr cert show`: Detailed view of a certificate's contents and history.
+    - `ferr cert check`: Standalone integrity verification for certificate files.
+- **Mandatory Certification**: `ferr copy` now automatically generates a `.ferrcert` for every job and verifies the destination against it.
+
+### Changed
+- **Directory-Only Copying**: `ferr copy` now strictly requires directory paths as source to ensure consistent integrity tracking.
+- **Verification Logic**: Commands like `verify` and `scan` now prioritize `.ferrcert` files over legacy JSON manifests.
+- **GUI Refinement**:
+    - Restricted source selection to folders in the copy tab.
+    - Added "Certified" status awareness to the source folder picker.
+    - Simplified the health tab to focus on the new certificate workflow.
+
+### Internal
+- Complete rewrite of the `ferr-cert` crate.
+- Deep integration of certification logic into the `ferr-core` copy engine.
+- Updated all workspace crates to version `0.4.0`.
+
+
 ## [0.3.0] - 2026-04-06
 
 ### Added
-- **Certificate Management via GUI** (`ferr-app`): The Ferr app now fully supports creating and verifying `ferrcert` Integrity Certificates directly from the intuitive Health tab using interactive drag-and-drop zones.
-- **Internationalization (i18n)** (`ferr-core`, `ferr-verify`, `ferr-transfer`, etc.): The entire Command-Line Interface, internal logging system, error messages, and native OS notifications have been fully translated from French to English in order to broaden accessibility and standardize the user experience.
-- **Log Organization**: Generated reports (JSON manifests and PDF logs) are now securely grouped in dedicated, timestamped subdirectories (`_ferr_logs_YYYYMMDD_HHMMSS`) at the destination root, keeping backups clean. CLI commands like `verify` and `scan` have been updated to auto-discover manifests in these subdirectories.
-- **Documentation Updates**: Added GUI compilation steps to the README. The `CLI.md` reference guide has been significantly revamped and reformatted with standardized parameter tables, exit codes, and better examples.
+- **Certificate Management via GUI** (`ferr-app`): Added support for creating and verifying legacy and `.ferrcert` Integrity Certificates in the Health tab.
+- **Internationalization (i18n)**: Translated the CLI, logging system, error messages, and notifications from French to English.
+- **Log Organization**: Reports (JSON manifests and PDF logs) are now grouped in timestamped subdirectories (`_ferr_logs_YYYYMMDD_HHMMSS`) at the destination root. Added auto-discovery for these manifests in `verify` and `scan` commands.
+- **Documentation Updates**: Added compilation instructions to the README. Updated `CLI.md` with parameter tables and additional examples.
 
 ### Changed
-- Bumped all `ferr-*` crates to version `0.3.0` to reflect new feature additions.
+- Updated all crates to version `0.3.0`.
 
 ## [0.2.0] - 2026-04-02
 
 ### Added
-- **Desktop Graphical Interface** (`ferr-app`): Introduced a complete, multilingual (English/French) desktop GUI, built using Tauri v2. It provides a sleek, user-friendly interface for managing copies, verifying drives, consulting history, and configuring settings, seamlessly communicating with the native Rust engine.
-- **Native PAR2 Engine** (`ferr-par2`): Native verification and repair using the `rust-par2` library, eliminating external dependencies for these operations. Implemented `Par2View` to handle directory structures and in-place repairs via high-performance symlinking.
-- **Ferr Certificate** (`ferr-cert`, `ferr-cli`): New subcommand `ferr cert` to generate and verify portable, JSON-based cryptographic certificates for folders and files, allowing third-party integrity checks without a local database.
-- **Workspace Expansion**: Integration of the `ferr-cert` and `ferr-app` crates into the core workspace.
-- **Architecture**: Unified the error reporting and progress handling between subprocess-based generation and native verification.
+- **Desktop Graphical Interface** (`ferr-app`): Added a desktop GUI built with Tauri v2 (English/French support) for managing copy jobs and viewing history.
+- **Native PAR2 Engine** (`ferr-par2`): Replaced external dependencies for PAR2 verification and repair with the `rust-par2` library. Added `Par2View` for directory structure handling.
+- **Integrity Certificates**: Added the `cert` subcommand to generate and verify portable JSON certificates.
+- **Workspace Expansion**: Added `ferr-cert` and `ferr-app` to the project workspace.
+- **Architecture**: Standardized error reporting and progress handling across components.
 
 ### Changed
-- Refactored `ferr-par2` for better maintainability and performance during repair operations.
+- Refactored `ferr-par2` internals.
 
 ## [0.1.0] - 2026-03-29
 
 ### Added
-- **Core Copy Engine** (`ferr-core`, `ferr-transfer`): Secure asynchronous copy featuring disk space verification, atomic file transfers, and preservation of extended attributes (xattrs) and modification dates.
-- **On-the-fly Hashing** (`ferr-hash`): Computes `xxhash64` and `sha256` signatures simultaneously during the copy stream without requiring a second disk pass.
-- **Hardware Redundancy** (`ferr-par2`): Generates PAR2 parity data via a `par2cmdline` subprocess to protect against potential data decay.
-- **Watch Mode**: Native monitoring (`notify-rust`) of directories and mount points, triggering automatic copies upon volume insertion. Includes specific automation options for DIT workflows.
-- **Camera Formats Detection** (`ferr-camera`): Optional DIT feature that recognizes BRAW, R3D, ARRI MXF, Sony XOCN, Canon XF, and ProRes formats for dynamic file renaming via templates (e.g., `{camera}`, `{date}`, `{clip}`).
-- **Local SQLite Database** (`ferr-session`): Tracks every copied file to ensure auditability and provide a deduplication feature (skips copies if the exact hash was securely transferred in the past).
-- **Reports and Manifests** (`ferr-report`, `ferr-pdf`): Automatically generates a cryptographic JSON manifest after each session, as well as a formatted PDF report.
-- **Post-Production Exports**: Allows converting generated manifests into Avid (ALE) formats and standard CSV files.
-- **Verification and Bit-rot Scanner** (`ferr-verify`): Cold storage utilities designed to verify the integrity of a disk against a past manifest.
-- **User Profiles**: Manage long backup parameters with `ferr profile` commands.
-- **Native Notifications**: End-of-process alerts integrated directly into the OS notification system.
+- **Core Copy Engine**: Implementation of asynchronous file copying with basic verification and metadata preservation.
+- **Hashing**: Added support for `xxhash64` and `sha256` hashing during the copy process.
+- **Redundancy**: Integration of `par2cmdline` for parity data generation.
+- **Watch Mode**: Monitoring of mount points to trigger copy operations.
+- **Camera Format Detection**: Recognition of several camera file formats for metadata-based renaming.
+- **Session History**: Uses SQLite to track copy jobs and support hash-based deduplication.
+- **Reports**: Generation of JSON manifests and PDF reports.
+- **Exports**: Support for exporting manifests to ALE and CSV formats.
+- **Verification Tools**: Added `verify` and `scan` commands for checking data integrity.
+- **Profiles**: Support for saving and loading job configurations.
+- **Notifications**: Basic system alerts for job completion.
 
 ### Initial Release
-- First stable technical milestone. Full implementation of a multi-crate Cargo architecture.
-- 100% of integration tests are passing.
+- Initial implementation of the multi-crate architecture.
+- Core features for DIT workflows and basic data verification.

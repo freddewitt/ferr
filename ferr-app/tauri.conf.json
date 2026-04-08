@@ -1,7 +1,7 @@
 {
   "$schema": "https://schemas.tauri.app/core/schema/config/v2/schema.json",
   "productName": "ferr",
-  "version": "0.1.0",
+  "version": "0.4.0",
   "identifier": "com.ferr.app",
   "build": {
     "frontendDist": "ui"

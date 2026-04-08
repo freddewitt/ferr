@@ -504,6 +504,13 @@ pub fn run_copy(
 ) -> anyhow::Result<ferr_report::Manifest> {
     let start = Instant::now();
 
+    if job.source.is_file() {
+        anyhow::bail!(
+            "ferr copy only accepts directories as source — not a single file: {}",
+            job.source.display()
+        );
+    }
+
     let hasher: Box<dyn ferr_hash::Hasher> = match job.hash_algo {
         HashAlgo::XxHash64 => Box::new(ferr_hash::XxHasher),
         HashAlgo::Sha256 => Box::new(ferr_hash::Sha256Hasher),
@@ -539,8 +546,26 @@ pub fn run_copy(
         }
     }
 
+    // Certification du dossier source (crée un .ferrcert si absent).
+    // Le cert est copié séparément après la boucle principale — il n'est PAS
+    // inclus dans file_entries car cert_verify l'ajoute un event après copie,
+    // ce qui changerait son hash et fausserait les vérifications manifest.
+    let src_cert_path = match ferr_cert::find_cert(&job.source) {
+        Some(p) => p,
+        None => ferr_cert::cert_create(&job.source, None, job.hash_algo.clone())
+            .context("Failed to create source certificate")?,
+    };
+
     let (src_root, src_files) = resolve_source(&job.source)?;
-    let total_files = src_files.len();
+    // Séparer les fichiers de données des certs : seuls les données vont dans le manifest
+    let (cert_src_files, data_files): (Vec<PathBuf>, Vec<PathBuf>) = src_files
+        .into_iter()
+        .partition(|f| {
+            f.extension()
+                .map(|e| e.eq_ignore_ascii_case("ferrcert"))
+                .unwrap_or(false)
+        });
+    let total_files = data_files.len();
 
     // Create empty subdirectories at all destinations
     if job.source.is_dir() {
@@ -560,7 +585,7 @@ pub fn run_copy(
     let mut dedup_skipped = 0usize;
     let global_start = Instant::now();
 
-    for (idx, src_file) in src_files.iter().enumerate() {
+    for (idx, src_file) in data_files.iter().enumerate() {
         let rel = src_file.strip_prefix(&src_root)?;
         let (file_size, modified_at) = get_file_metadata(src_file);
 
@@ -696,6 +721,68 @@ pub fn run_copy(
                 });
             }
         }
+    }
+
+    // --- Copie des certs vers chaque destination (hors manifest) ---
+    for cert_src in &cert_src_files {
+        if let Ok(rel) = cert_src.strip_prefix(&src_root) {
+            for dest_path in &job.destinations {
+                let dest_cert = dest_path.join(rel);
+                if let Some(parent) = dest_cert.parent() {
+                    std::fs::create_dir_all(parent).ok();
+                }
+                if let Err(e) = std::fs::copy(cert_src, &dest_cert) {
+                    tracing::warn!(
+                        cert = %cert_src.display(),
+                        dest = %dest_cert.display(),
+                        "cert copy failed: {e}"
+                    );
+                }
+            }
+        }
+    }
+
+    // --- Certification : vérification dans chaque destination ---
+    // Le cert est dans dest_path/src_dir_name/cert.ferrcert ;
+    // on vérifie les données dans ce même sous-dossier.
+    if let Ok(cert_rel) = src_cert_path.strip_prefix(&src_root) {
+        for dest_path in &job.destinations {
+            let dest_cert = dest_path.join(cert_rel);
+            if dest_cert.exists() {
+                // Le dossier cible est le parent du cert dans la destination
+                let target_dir = dest_cert.parent().unwrap_or(dest_path.as_path());
+                if let Err(e) = ferr_cert::cert_verify(&dest_cert, target_dir, true) {
+                    tracing::warn!(dest = %dest_path.display(), "cert verify after copy failed: {e}");
+                }
+            }
+        }
+    }
+
+    // Ajouter event "copied" dans le cert source
+    let dest_strs: Vec<String> = job
+        .destinations
+        .iter()
+        .map(|p| p.to_string_lossy().into_owned())
+        .collect();
+    let copied_event = ferr_cert::CertEvent {
+        kind: "copied".to_string(),
+        at: chrono::Utc::now().to_rfc3339(),
+        by: format!("ferr {}", env!("CARGO_PKG_VERSION")),
+        hostname: get_hostname(),
+        path: Some(job.source.to_string_lossy().into_owned()),
+        role: Some("source".to_string()),
+        source: Some(job.source.to_string_lossy().into_owned()),
+        dest: Some(dest_strs.join(", ")),
+        result: if errors == 0 { "PASS".to_string() } else { "FAIL".to_string() },
+        detail: format!(
+            "{} files copied to {} destination(s)",
+            total_files - errors,
+            job.destinations.len()
+        ),
+        issues: Vec::new(),
+    };
+    if let Err(e) = ferr_cert::cert_append_event(&src_cert_path, copied_event) {
+        tracing::warn!("Could not append 'copied' event to source cert: {e}");
     }
 
     // --- Phase PAR2 ---
@@ -1030,7 +1117,12 @@ pub fn generate_manifest(
 
     // For generate_manifest (cert): use the source dir itself as root so
     // stored paths are just filenames — no folder name prefix.
-    let (_, src_files) = resolve_source(source)?;
+    let (_, mut src_files) = resolve_source(source)?;
+    src_files.retain(|f| {
+        f.extension()
+            .map(|e| !e.eq_ignore_ascii_case("ferrcert"))
+            .unwrap_or(true)
+    });
     let src_root = if source.is_dir() { source.to_path_buf() } else {
         source.parent().unwrap_or(source).to_path_buf()
     };

@@ -184,18 +184,19 @@ pub async fn run_repair(app: tauri::AppHandle, par2_index: String, target_folder
 }
 
 #[tauri::command]
-pub async fn run_cert_create(
-    app: tauri::AppHandle,
-    folder: String,
-    output_path: String,
-) -> Result<(), String> {
-    let args = vec![
-        "cert".to_string(),
-        "create".to_string(),
-        folder,
-        "--output".into(),
-        output_path,
-    ];
+pub async fn run_cert_create(app: tauri::AppHandle, folder: String) -> Result<(), String> {
+    let args = vec!["cert".to_string(), "create".to_string(), folder];
+    spawn_and_drain(&app, args).await
+}
+
+#[tauri::command]
+pub async fn check_cert(app: tauri::AppHandle, folder: String) -> Result<String, String> {
+    run_ferr_json(&app, &["cert", "show", &folder, "--quiet"]).await
+}
+
+#[tauri::command]
+pub async fn run_cert_show(app: tauri::AppHandle, cert_or_dir: String) -> Result<(), String> {
+    let args = vec!["cert".to_string(), "show".to_string(), cert_or_dir];
     spawn_and_drain(&app, args).await
 }
 

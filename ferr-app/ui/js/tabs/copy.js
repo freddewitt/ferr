@@ -11,6 +11,10 @@ const CopyTab = (() => {
                 <div class="copy-zone-row">
                     <div class="zone-header">
                         <span class="section-label">${t('source')}</span>
+                        <span id="copy-cert-badge" class="hidden" style="
+                            font-size:11px; font-weight:600; padding:2px 8px;
+                            border-radius:10px; margin-left:8px;
+                        "></span>
                     </div>
                     <div id="copy-source-zone"></div>
                 </div>
@@ -32,8 +36,8 @@ const CopyTab = (() => {
 
         _sourceZone = new DropZone(
             document.getElementById('copy-source-zone'),
-            { label: t('select_source'), hint: t('select_source_hint'), accept: 'any',
-              onPick: () => App.updateBottomBar() }
+            { label: t('select_source'), hint: t('select_source_hint'), accept: 'folder',
+              onPick: (folder) => { App.updateBottomBar(); _checkCertBadge(folder); } }
         );
 
         _destZone = new DropZone(
@@ -78,6 +82,30 @@ const CopyTab = (() => {
         // Hide "add mirror" if we now have 2
         if (_mirrorZones.length >= 2) {
             document.getElementById('copy-add-mirror').classList.add('hidden');
+        }
+    }
+
+    async function _checkCertBadge(folder) {
+        const badge = document.getElementById('copy-cert-badge');
+        if (!badge || !folder) return;
+        badge.className = 'hidden';
+        try {
+            const result = await Bridge.checkCert(folder);
+            if (result && result.trim()) {
+                badge.textContent = t('certified') || 'Certified';
+                badge.style.background = 'var(--green, #22c55e)';
+                badge.style.color = '#fff';
+            } else {
+                badge.textContent = t('not_certified') || 'Not certified';
+                badge.style.background = 'var(--border)';
+                badge.style.color = 'var(--text-secondary)';
+            }
+            badge.classList.remove('hidden');
+        } catch {
+            badge.textContent = t('not_certified') || 'Not certified';
+            badge.style.background = 'var(--border)';
+            badge.style.color = 'var(--text-secondary)';
+            badge.classList.remove('hidden');
         }
     }
 

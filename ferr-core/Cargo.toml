@@ -1,6 +1,6 @@
 [package]
 name    = "ferr-core"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 license = "MIT"
 
@@ -20,6 +20,7 @@ ferr-verify   = { path = "../ferr-verify" }
 ferr-par2     = { path = "../ferr-par2" }
 ferr-camera   = { path = "../ferr-camera" }
 ferr-session  = { path = "../ferr-session" }   # lecture seule : find_file_by_hash (déduplication)
+ferr-cert    = { path = "../ferr-cert" }
 
 [target.'cfg(unix)'.dependencies]
 libc = { workspace = true }

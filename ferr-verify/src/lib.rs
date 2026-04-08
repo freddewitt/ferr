@@ -387,6 +387,99 @@ pub struct BitRotReport {
     pub scan_date: String,
 }
 
+/// Scanne une destination contre un `.ferrcert`.
+///
+/// Utilise `cert.tree` (entrées de type `File`) plutôt qu'un manifest.
+/// Le filtre `--since` est appliqué sur l'heure de modification réelle du
+/// fichier sur disque (pas sur une date stockée dans le cert).
+///
+/// Retourne un [`BitRotReport`] ; la mise à jour du cert (ajout d'un event
+/// "scanned") est laissée à l'appelant via [`ferr_cert::cert_append_event`].
+pub fn scan_bitrot_cert(
+    dest: &Path,
+    cert: &ferr_cert::FerrCert,
+    hasher: &dyn ferr_hash::Hasher,
+    since: Option<chrono::DateTime<chrono::Utc>>,
+    on_progress: impl Fn(ScanProgress) + Send,
+) -> anyhow::Result<BitRotReport> {
+    let scan_date = chrono::Utc::now().to_rfc3339();
+
+    let file_entries: Vec<_> = cert
+        .tree
+        .iter()
+        .filter(|e| e.kind == ferr_cert::TreeEntryKind::File)
+        .collect();
+    let total = file_entries.len();
+    let mut scanned = 0usize;
+    let mut skipped = 0usize;
+    let mut corrupted = Vec::new();
+
+    for entry in &file_entries {
+        let rel = PathBuf::from(&entry.path);
+        let abs = safe_join(dest, &rel)?;
+
+        // --since : ignorer les fichiers dont la mtime est postérieure à la date
+        if let Some(since_dt) = since {
+            if let Ok(meta) = std::fs::metadata(&abs) {
+                if let Ok(modified) = meta.modified() {
+                    let mod_dt: chrono::DateTime<chrono::Utc> = modified.into();
+                    if mod_dt > since_dt {
+                        skipped += 1;
+                        continue;
+                    }
+                }
+            }
+        }
+
+        on_progress(ScanProgress {
+            scanned,
+            total,
+            current: rel.clone(),
+        });
+
+        let expected = entry.hash.as_deref().unwrap_or("");
+
+        if !abs.exists() {
+            corrupted.push(BitRotEntry {
+                path: rel,
+                expected_hash: expected.to_string(),
+                actual_hash: "(missing)".to_string(),
+                last_ok_date: Some(cert.source.certified_at.clone()),
+            });
+            scanned += 1;
+            continue;
+        }
+
+        match hasher.hash_file(&abs) {
+            Ok(actual) if actual.hex != expected => {
+                corrupted.push(BitRotEntry {
+                    path: rel,
+                    expected_hash: expected.to_string(),
+                    actual_hash: actual.hex,
+                    last_ok_date: Some(cert.source.certified_at.clone()),
+                });
+            }
+            Err(e) => {
+                corrupted.push(BitRotEntry {
+                    path: rel,
+                    expected_hash: expected.to_string(),
+                    actual_hash: format!("ERROR: {e}"),
+                    last_ok_date: Some(cert.source.certified_at.clone()),
+                });
+            }
+            Ok(_) => {}
+        }
+        scanned += 1;
+    }
+
+    Ok(BitRotReport {
+        scanned,
+        skipped,
+        corrupted,
+        scan_date,
+    })
+}
+
 /// Scanne tous les fichiers d'une destination et compare leurs hash au manifest.
 ///
 /// - `since` : si fourni, ignore les fichiers dont `modified_at` est postérieur
@@ -583,6 +676,85 @@ mod scan_tests {
             "File modified after since should be ignored"
         );
         assert_eq!(report.scanned, 0);
+
+        std::fs::remove_dir_all(&base).ok();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests scan_bitrot_cert
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod cert_scan_tests {
+    use super::*;
+    use ferr_hash::XxHasher;
+
+    fn tmp(name: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("ferr_verify_cert_{name}"));
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    fn make_tree(base: &Path) {
+        std::fs::write(base.join("clip.dat"), b"cinema data").unwrap();
+        std::fs::create_dir_all(base.join("sub")).unwrap();
+        std::fs::write(base.join("sub").join("log.txt"), b"log line").unwrap();
+    }
+
+    #[test]
+    fn cert_scan_clean() {
+        let base = tmp("clean");
+        std::fs::remove_dir_all(&base).ok();
+        std::fs::create_dir_all(&base).unwrap();
+        make_tree(&base);
+
+        let cert_path = ferr_cert::cert_create(&base, None, ferr_hash::HashAlgo::XxHash64).unwrap();
+        let cert = ferr_cert::cert_load(&cert_path).unwrap();
+
+        let report = scan_bitrot_cert(&base, &cert, &XxHasher, None, |_| {}).unwrap();
+        assert_eq!(report.scanned, 2);
+        assert!(report.corrupted.is_empty(), "No bit rot expected");
+
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn cert_scan_detects_corruption() {
+        let base = tmp("corrupt");
+        std::fs::remove_dir_all(&base).ok();
+        std::fs::create_dir_all(&base).unwrap();
+        make_tree(&base);
+
+        let cert_path = ferr_cert::cert_create(&base, None, ferr_hash::HashAlgo::XxHash64).unwrap();
+        let cert = ferr_cert::cert_load(&cert_path).unwrap();
+
+        // Corrompre clip.dat après certification
+        std::fs::write(base.join("clip.dat"), b"CORRUPTED").unwrap();
+
+        let report = scan_bitrot_cert(&base, &cert, &XxHasher, None, |_| {}).unwrap();
+        assert_eq!(report.corrupted.len(), 1, "Corruption not detected");
+        assert!(report.corrupted[0].path.to_string_lossy().contains("clip.dat"));
+
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn cert_scan_missing_file() {
+        let base = tmp("missing");
+        std::fs::remove_dir_all(&base).ok();
+        std::fs::create_dir_all(&base).unwrap();
+        make_tree(&base);
+
+        let cert_path = ferr_cert::cert_create(&base, None, ferr_hash::HashAlgo::XxHash64).unwrap();
+        let cert = ferr_cert::cert_load(&cert_path).unwrap();
+
+        // Supprimer un fichier
+        std::fs::remove_file(base.join("clip.dat")).unwrap();
+
+        let report = scan_bitrot_cert(&base, &cert, &XxHasher, None, |_| {}).unwrap();
+        assert_eq!(report.corrupted.len(), 1);
+        assert!(report.corrupted[0].actual_hash.contains("missing"));
 
         std::fs::remove_dir_all(&base).ok();
     }

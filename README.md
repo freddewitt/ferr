@@ -1,6 +1,6 @@
 <div align="center">
   <h1>ferr</h1>
-  <p><strong>Secure, Byte-for-Byte File Copy Tool for DITs & Power Users (Desktop GUI + CLI)</strong></p>
+  <p><strong>File copy tool with integrity verification for DITs and backups (GUI + CLI)</strong></p>
 
   [![CI](https://github.com/freddewitt/ferr/actions/workflows/ci.yml/badge.svg)](https://github.com/freddewitt/ferr/actions/workflows/ci.yml)
   [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -10,29 +10,30 @@
 <br>
 
 > [!WARNING]
-> **Disclaimer: Personal Project & Vibe Coding**  
-> I created this tool strictly for my own personal use. I am not a professional software developer, and this entire project is the result of "vibe coding" (built through exploration and AI assistance).  
-> The code is provided **"as is"**, without any warranties, safety guarantees, or liability. Use it at your own risk.
+> **Disclaimer: Personal Project**  
+> I created this tool for my own use. I am not a professional software developer, and this project was built with the help of AI to explore certain workflows.  
+> The code is provided **"as is"**, without any warranties or guarantees. Use it at your own risk.
 
 ---
 
-**ferr** is a high-performance utility designed for **absolute data integrity**. Whether you're a Digital Imaging Technician (DIT) managing 8K cinema footage or a power user moving critical backups, `ferr` ensures every byte is accounted for through cryptographic verification and hardware-accelerated redundancy. Available as both a **sleek Desktop GUI application** and a scriptable **Command-Line Interface**.
+**ferr** is a utility designed to help ensure file integrity during transfers. It is intended for users who need to verify that files are copied correctly, such as Digital Imaging Technicians (DITs) or those managing backups. It uses cryptographic hashing to verify data and provides optional redundancy through PAR2. It is available as a Desktop GUI application and a Command-Line Interface.
 
-## 🚀 Why use `ferr`?
+## Features
 
-Traditional copy tools can fail silently or leave you wondering if your data is actually safe. `ferr` bridges the gap between a simple `cp` and complex industrial workflows:
+`ferr` provides several tools to assist with data management and verification:
 
-- 🛡️ **Zero-Trust Copying**: Every file is hashed on-the-fly (`XXH64` or `SHA-256`).
-- ⚡ **Multi-Destination**: Copy from one source to up to 3 destinations simultaneously.
-- 🏗️ **Self-Healing Data**: Native `par2` support—if a bit flips on your drive, `ferr` can repair it.
-- 🖥️ **Sleek Desktop GUI**: A beautifully designed, multilingual macOS app built with Tauri v2.
-- 💾 **Smart History**: Powered by a local SQLite database to prevent duplicate copies.
-- 📽️ **Cinema-Ready**: Automatic detection of BRAW, R3D, ARRI, Sony, and more.
-- 🗂️ **Clean Backups**: Automatic timestamped subfolders (`_ferr_logs`) for clean reports.
+- **Hashing**: Files can be hashed during the copy process (`XXH64` or `SHA-256`) to check for transfer errors.
+- **Multiple Destinations**: Supports copying from one source to up to 3 destinations.
+- **PAR2 Support**: Can generate PAR2 files to assist with possible future data repair if corruption occurs.
+- **Desktop GUI**: A cross-platform interface built with Tauri v2 and HTML/JS.
+- **Transfer History**: Uses a local SQLite database to keep track of completed jobs.
+- **File Detection**: Includes basic detection for various camera file formats.
+- **Integrity Certificates**: Supports generating and verifying portable `.ferrcert` files to document folder state and tracking history.
+- **Logging**: Generates timestamped subfolders (`_ferr_logs`) containing job reports.
 
 ---
 
-## 🏎️ Quick Start
+## Quick Start
 
 ### Installation
 
@@ -45,94 +46,82 @@ cargo install --path ferr-cli
 ```
 
 #### 2. Desktop GUI (`ferr-app`)
-To build the standalone graphical macOS application (`.app`), you must compile the native interface and bundle the CLI as an internal engine:
+To build the graphical application on macOS, you must compile the CLI as a sidecar:
 
 ```bash
-# 1. Build the real rust engine for the app sidecar
+# 1. Build the engine
 cargo build --release -p ferr-cli
 
-# 2. Copy the built engine to the Tauri binaries folder (Apple Silicon example)
+# 2. Copy to the Tauri binaries folder (Apple Silicon example)
 cp target/release/ferr ferr-app/binaries/ferr-cli-aarch64-apple-darwin
 
-# 3. Install Tauri v2 CLI (if not already installed)
+# 3. Install Tauri v2 CLI
 cargo install tauri-cli --version "^2.0.0"
 
-# 4. Compile the final release bundle
+# 4. Build the application
 cd ferr-app
 cargo tauri build
-# Your standalone app will be at: target/release/bundle/macos/ferr.app
-```
-
-To run the application in "Live Development" mode instead:
-```bash
-cd ferr-app
-cargo tauri dev
+# The app bundle will be at: target/release/bundle/macos/ferr.app
 ```
 
 ### Basic Usage
 ```bash
-# Secure copy to one destination (default XXH64)
+# Copy a folder and verify integrity (defaults to XXH64)
 ferr copy /Volumes/SOURCE /Volumes/DEST
 
-# Mirror copy to two SSDs with 5% PAR2 redundancy
+# Copy to two destinations with 5% PAR2 redundancy
 ferr copy /Volumes/CARD /mnt/ssd1 --dest2 /mnt/ssd2 --par2 5
 ```
 
 ---
 
-## 🎖️ Feature Highlights
+## Usage Scenarios
 
-### 1. Portable Integrity Certificates (`ferr cert`)
-Portable certificates allow you to vouch for the integrity of a folder without sharing your entire session database. Useful for shipping drives to post-production labs or clients.
+### 1. Integrity Certificates (`ferr cert`)
+You can generate portable certificates to document the state of a folder. These are useful for verifying data integrity across different systems.
+For a detailed technical explanation of how they work, see [ferrcert.md](ferrcert.md).
 
-- **Create**: `ferr cert create /MyData --output verification.ferrcert`
-- **Verify**: `ferr cert verify verification.ferrcert /ReceivedData`
-- *Perfect for shipping drives to post-production labs or clients.*
+- **Create**: `ferr cert create /MyData`
+- **Verify**: `ferr cert verify /MyData/MyData.ferrcert /ReceivedData`
 
-### 2. DIT Automation & Renaming
-Detect camera formats and rename clips based on metadata dynamically:
+### 2. Rename on Copy
+Basic support for renaming files based on metadata during the copy process:
 ```bash
-ferr copy /Volumes/A001 /RAID --camera --rename "{date}_{camera}_{reel}_{clip}{ext}" --eject
+ferr copy /Volumes/A001 /RAID --camera --rename "{date}_{camera}_{clip}{ext}"
 ```
 
-### 3. "Watch" Mode
-Set it and forget it. `ferr` monitors mount points and kicks off copies as soon as a card is inserted:
+### 3. Watch Mode
+Monitors a path for new mounts and starts a copy automatically:
 ```bash
 ferr watch /Volumes --dest /mnt/backups --profile onset
 ```
 
 ---
 
-## 🏗️ System Architecture
+## Project Structure
 
-`ferr` is built as a modular Rust workspace for maximum speed and reliability:
+`ferr` is organized into several modules:
 
-| Component | Responsibility |
+| Component | Description |
 | :--- | :--- |
-| **`ferr-app`** | Desktop GUI built with Tauri v2, HTML/JS/CSS. |
-| **`ferr-cli`** | The main entrypoint for the command-line utility. |
-| **`ferr-core`** | Orchestration, dry-runs, and job logic. |
-| **`ferr-cert`** | Portable PEM-encoded integrity certificates. |
-| **`ferr-par2`** | Native PAR2 verification and repair engine. |
-| **`ferr-hash`** | High-performance streaming hashing (xxHash/SHA2). |
-| **`ferr-session`** | SQLite-backed transfer history and deduplication. |
-| **`ferr-report`** | JSON manifest architecture and PDF generation, saved in organized logs. |
+| **`ferr-app`** | GUI front-end. |
+| **`ferr-cli`** | CLI interface. |
+| **`ferr-core`** | Core logic and job management. |
+| **`ferr-cert`** | Logic for generating and verifying integrity certificates. |
+| **`ferr-par2`** | Wrapper for PAR2 verification and repair. |
+| **`ferr-hash`** | Hashing implementations. |
+| **`ferr-session`** | Session management and SQLite storage. |
+| **`ferr-report`** | Report generation (JSON and PDF). |
 
 ---
 
-## 📖 Documentation & Reference
+## Documentation
 
-For a complete breakdown of every command, diagnostic flag, and real-world DIT automation scenario, please refer to the:
+For more information on commands and options, see the:
 
 👉 **[ferr CLI Reference Guide](CLI.md)**
 
-```bash
-# Get context-specific help at any time
-ferr copy --help
-ferr cert --help
-```
-
 ---
 
-## 📜 License
+## License
 Licensed under the **MIT License**. See [LICENSE](LICENSE) for details.

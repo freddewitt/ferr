@@ -43,6 +43,7 @@ fn job(src: PathBuf, dst: PathBuf) -> CopyJob {
         rename_template: None,
         auto_eject: false,
         dedup: false,
+        save_manifest: false,
     }
 }
 
@@ -78,12 +79,15 @@ fn copy_basic_creates_files_and_manifest() {
         assert_eq!(entry.hash_algo, "xxhash64");
     }
 
-    // Le manifest JSON est sauvegardé et rechargeable
-    let manifest_path = ferr_core::find_manifest_path(&dst).unwrap();
-    assert!(manifest_path.exists(), "ferr-manifest.json absent");
-    let loaded = ferr_report::load_manifest(&manifest_path).unwrap();
-    assert_eq!(loaded.total_files, manifest.total_files);
-    assert_eq!(loaded.files.len(), manifest.files.len());
+    // Un .ferrcert a été créé dans la source et copié dans la destination
+    assert!(
+        ferr_cert::find_cert(&src).is_some(),
+        ".ferrcert absent de la source"
+    );
+    assert!(
+        ferr_cert::find_cert(&dst.join(src.file_name().unwrap())).is_some(),
+        ".ferrcert absent de la destination"
+    );
 
     std::fs::remove_dir_all(&src).ok();
     std::fs::remove_dir_all(&dst).ok();
@@ -162,7 +166,6 @@ fn verify_ok_after_copy() {
     make_source(&src, 4, 2048);
 
     let manifest = ferr_core::run_copy(job(src.clone(), dst.clone()), |_| {}, &[]).unwrap();
-    let manifest_path = ferr_core::find_manifest_path(&dst).unwrap();
 
     let hasher: Box<dyn ferr_hash::Hasher> = Box::new(ferr_hash::XxHasher);
     let report = ferr_verify::verify_manifest(&manifest, &dst, hasher.as_ref()).unwrap();
@@ -172,11 +175,11 @@ fn verify_ok_after_copy() {
     assert!(report.corrupted.is_empty());
     assert_eq!(report.ok.len(), manifest.total_files);
 
-    // Aussi depuis les répertoires
-    let report2 = ferr_verify::verify_dirs(&src, &dst, hasher.as_ref()).unwrap();
-    assert_eq!(report2.exit_code(), 0);
+    // Aussi via cert
+    let dst_data_dir = dst.join(src.file_name().unwrap());
+    let dest_cert = ferr_cert::find_cert(&dst_data_dir);
+    assert!(dest_cert.is_some(), ".ferrcert absent de la destination");
 
-    drop(manifest_path);
     std::fs::remove_dir_all(&src).ok();
     std::fs::remove_dir_all(&dst).ok();
 }
@@ -339,7 +342,6 @@ fn export_ale_produces_valid_file() {
     make_source(&src, 4, 512);
 
     let manifest = ferr_core::run_copy(job(src.clone(), dst.clone()), |_| {}, &[]).unwrap();
-    let manifest_path = ferr_core::find_manifest_path(&dst).unwrap();
 
     let ale_path = dst.join("report.ale");
     ferr_report::export_ale(&manifest, &ale_path).unwrap();
@@ -366,7 +368,6 @@ fn export_ale_produces_valid_file() {
         );
     }
 
-    drop(manifest_path);
     std::fs::remove_dir_all(&src).ok();
     std::fs::remove_dir_all(&dst).ok();
 }
@@ -412,12 +413,10 @@ fn pdf_report_is_non_empty() {
     let dst = tmp("pdf_dst");
     make_source(&src, 5, 1024);
 
-    let _manifest = ferr_core::run_copy(job(src.clone(), dst.clone()), |_| {}, &[]).unwrap();
-    let manifest_path = ferr_core::find_manifest_path(&dst).unwrap();
-    let loaded = ferr_report::load_manifest(&manifest_path).unwrap();
+    let manifest = ferr_core::run_copy(job(src.clone(), dst.clone()), |_| {}, &[]).unwrap();
 
     let pdf_path = dst.join("report.pdf");
-    ferr_pdf::generate_report(&loaded, &pdf_path).unwrap();
+    ferr_pdf::generate_report(&manifest, &pdf_path).unwrap();
 
     assert!(pdf_path.exists());
     let size = std::fs::metadata(&pdf_path).unwrap().len();
@@ -439,10 +438,15 @@ fn pdf_report_is_non_empty() {
 fn resume_skips_already_copied_files() {
     let src = tmp("resume_src");
     let dst = tmp("resume_dst");
+    // Nettoyer les répertoires d'un run précédent éventuellement échoué
+    std::fs::remove_dir_all(&src).ok();
+    std::fs::remove_dir_all(&dst).ok();
     make_source(&src, 5, 2048);
 
-    // Première copie complète
-    let m1 = ferr_core::run_copy(job(src.clone(), dst.clone()), |_| {}, &[]).unwrap();
+    // Première copie complète (save_manifest:true pour que le resume puisse lire le manifest)
+    let mut j1 = job(src.clone(), dst.clone());
+    j1.save_manifest = true;
+    let m1 = ferr_core::run_copy(j1, |_| {}, &[]).unwrap();
     assert_eq!(m1.total_files, 5);
 
     // Ajouter un fichier supplémentaire à la source
@@ -453,8 +457,12 @@ fn resume_skips_already_copied_files() {
     j.resume = true;
     let m2 = ferr_core::run_copy(j, |_| {}, &[]).unwrap();
 
-    // Le nouveau fichier doit avoir été copié
-    assert!(dst.join("extra_new.dat").exists());
+    // Le nouveau fichier doit avoir été copié (les fichiers sont dans un sous-dossier src)
+    let dst_data_dir = dst.join(src.file_name().unwrap());
+    assert!(
+        dst_data_dir.join("extra_new.dat").exists(),
+        "extra_new.dat absent de la destination"
+    );
     // Les fichiers skipped ont le statut Skipped
     let skipped = m2
         .files

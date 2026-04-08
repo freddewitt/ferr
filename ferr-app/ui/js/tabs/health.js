@@ -97,16 +97,16 @@ const HealthTab = (() => {
 
     // ── Verify ─────────────────────────────────────────────────────────────
     function _renderVerifyPanel(panel) {
-        let mode = 'folders';
+        let mode = 'cert';
         let zones = {};   // holds DropZone references for the current mode
 
         panel.innerHTML = `
             <div class="health-panel">
                 <div class="health-panel-title">${t('verify')}</div>
                 <div class="health-mode-tabs">
-                    <button class="health-mode-tab active" data-mode="folders">${t('two_folders')}</button>
+                    <button class="health-mode-tab" data-mode="folders">${t('two_folders')}</button>
                     <button class="health-mode-tab" data-mode="manifest">${t('json_manifest')}</button>
-                    <button class="health-mode-tab" data-mode="cert">${t('certificate')}</button>
+                    <button class="health-mode-tab active" data-mode="cert">${t('certificate')}</button>
                 </div>
                 <div id="verify-zones"></div>
                 <div id="verify-result" class="hidden"></div>
@@ -125,8 +125,9 @@ const HealthTab = (() => {
                 zones.manifest = new DropZone(document.getElementById('verify-manifest-zone'), { label: t('json_manifest'), accept: 'file', ext: ['json'] });
                 zones.dest     = new DropZone(document.getElementById('verify-dest2-zone'),    { label: t('dest_folder'),   accept: 'folder' });
             } else {
+                // cert mode: accept a folder (ferr finds the .ferrcert automatically) or a .ferrcert file
                 el.innerHTML = '<div id="verify-cert-zone" style="margin-bottom:8px;"></div><div id="verify-cert-folder-zone"></div>';
-                zones.cert   = new DropZone(document.getElementById('verify-cert-zone'),        { label: t('cert_file'),       accept: 'file', ext: ['ferrcert'] });
+                zones.cert   = new DropZone(document.getElementById('verify-cert-zone'),        { label: t('cert_or_folder'),   accept: 'any', ext: ['ferrcert'] });
                 zones.folder = new DropZone(document.getElementById('verify-cert-folder-zone'), { label: t('folder_to_verify'), accept: 'folder' });
             }
             _bindVerifyAction();
@@ -149,11 +150,11 @@ const HealthTab = (() => {
                     try { await Bridge.runVerify(manifest, dest); } finally { Progress.hide(); }
 
                 } else {
-                    const cert   = zones.cert?.getPath();
-                    const folder = zones.folder?.getPath();
-                    if (!cert || !folder) return App.flash(t('select_folder_first'));
+                    const certOrDir = zones.cert?.getPath();
+                    const folder    = zones.folder?.getPath();
+                    if (!certOrDir || !folder) return App.flash(t('select_folder_first'));
                     Progress.show(t('verify') + '…');
-                    try { await Bridge.certVerify(cert, folder); } finally { Progress.hide(); }
+                    try { await Bridge.certVerify(certOrDir, folder); } finally { Progress.hide(); }
                 }
             });
         };
@@ -228,7 +229,7 @@ const HealthTab = (() => {
             const el = document.getElementById('cert-zones');
             zones = {};
             if (mode === 'create') {
-                el.innerHTML = '<div id="cert-src-zone"></div>';
+                el.innerHTML = '<div id="cert-src-zone"></div><div id="cert-create-result" class="hidden" style="margin-top:10px;font-size:12px;color:var(--text-secondary);"></div>';
                 zones.src = new DropZone(document.getElementById('cert-src-zone'), { label: t('source_folder'), accept: 'folder' });
             } else {
                 el.innerHTML = '<div id="cert-file-zone" style="margin-bottom:8px;"></div><div id="cert-verify-folder-zone"></div>';
@@ -243,10 +244,18 @@ const HealthTab = (() => {
                 App.setBottomBarAction(t('generate_cert'), async () => {
                     const folder = zones.src?.getPath();
                     if (!folder) return App.flash(t('select_folder_first'));
-                    const out = await Bridge.pickSaveLocation('certificate.ferrcert');
-                    if (!out) return;
+                    const resultEl = document.getElementById('cert-create-result');
+                    if (resultEl) resultEl.classList.add('hidden');
                     Progress.show(t('generate_cert') + '…');
-                    try { await Bridge.certCreate(folder, out); } finally { Progress.hide(); }
+                    try {
+                        await Bridge.certCreate(folder);
+                        if (resultEl) {
+                            resultEl.textContent = t('cert_created_in') ? t('cert_created_in', { folder }) : `Certificate created in: ${folder}`;
+                            resultEl.classList.remove('hidden');
+                        }
+                    } finally {
+                        Progress.hide();
+                    }
                 });
             } else {
                 App.setBottomBarAction(t('cert_verify_tab'), async () => {
