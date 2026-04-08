@@ -8,6 +8,10 @@
   [![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org/)
 </div>
 
+<p align="center">
+  <img src="assets/gui.avif" alt="ferr GUI" width="600">
+</p>
+
 <br>
 
 > [!WARNING]
