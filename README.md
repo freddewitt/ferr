@@ -1,6 +1,7 @@
 <div align="center">
   <h1>ferr</h1>
   <p><strong>File copy tool with integrity verification for DITs and backups (GUI + CLI)</strong></p>
+  <p><em>Ferr — completely available, sounds good in CLI (ferr copy src/ dest/), comes from the Latin <strong>ferre</strong> (to carry).</em></p>
 
   [![CI](https://github.com/freddewitt/ferr/actions/workflows/ci.yml/badge.svg)](https://github.com/freddewitt/ferr/actions/workflows/ci.yml)
   [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
