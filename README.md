@@ -1,7 +1,7 @@
 <div align="center">
   <h1>ferr</h1>
   <p><strong>File copy tool with integrity verification for DITs and backups (GUI + CLI)</strong></p>
-  <p><em>Ferr vient du latin "Ferre" : porter</em></p>
+  <p><em>Named after the Latin <strong>ferre</strong> (to carry) — built to transport your data with uncompromising integrity.</em></p>
 
   [![CI](https://github.com/freddewitt/ferr/actions/workflows/ci.yml/badge.svg)](https://github.com/freddewitt/ferr/actions/workflows/ci.yml)
   [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
