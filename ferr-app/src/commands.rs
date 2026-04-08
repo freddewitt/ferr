@@ -206,7 +206,14 @@ pub async fn run_cert_verify(
     cert_path: String,
     folder: String,
 ) -> Result<(), String> {
-    let args = vec!["cert".to_string(), "verify".to_string(), cert_path, folder];
+    let args = vec![
+        "cert".to_string(),
+        "verify".to_string(),
+        cert_path,
+        folder,
+        "--progress-format".into(),
+        "machine".into(),
+    ];
     spawn_and_drain(&app, args).await
 }
 
@@ -282,6 +289,32 @@ pub fn get_volumes() -> Vec<crate::volume::VolumeInfo> {
 #[tauri::command]
 pub fn quit_app(app: tauri::AppHandle) {
     app.exit(0);
+}
+
+#[tauri::command]
+pub fn open_path(path: String) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(path)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .arg(path)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(path)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

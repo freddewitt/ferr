@@ -5,10 +5,9 @@ const HealthTab = (() => {
     let _cards    = [];
 
     const CARDS = [
-        { id: 'scan',   title: t('scan'),         desc: t('scan_desc'),         icon: _scanIcon() },
-        { id: 'verify', title: t('verify'),       desc: t('verify_desc'),       icon: _verifyIcon() },
-        { id: 'repair', title: t('repair'),       desc: t('repair_desc'),       icon: _repairIcon() },
-        { id: 'cert',   title: t('cert'),         desc: t('cert_desc'),         icon: _certIcon() },
+        { id: 'scan',   titleKey: 'scan',         descKey: 'scan_desc',         icon: _scanIcon() },
+        { id: 'verify', titleKey: 'verify',       descKey: 'verify_desc',       icon: _verifyIcon() },
+        { id: 'repair', titleKey: 'repair',       descKey: 'repair_desc',       icon: _repairIcon() },
     ];
 
     function render(container) {
@@ -21,8 +20,8 @@ const HealthTab = (() => {
         _cards = CARDS.map(c => new HealthCard(cardsEl, {
             id:      c.id,
             icon:    c.icon,
-            title:   c.title,
-            desc:    c.desc,
+            title:   t(c.titleKey),
+            desc:    t(c.descKey),
             onClick: id => _selectCard(id),
         }));
 
@@ -42,7 +41,6 @@ const HealthTab = (() => {
             case 'scan':   _renderScanPanel(panel);   break;
             case 'verify': _renderVerifyPanel(panel); break;
             case 'repair': _renderRepairPanel(panel); break;
-            case 'cert':   _renderCertPanel(panel);   break;
         }
     }
 
@@ -97,77 +95,29 @@ const HealthTab = (() => {
 
     // ── Verify ─────────────────────────────────────────────────────────────
     function _renderVerifyPanel(panel) {
-        let mode = 'cert';
-        let zones = {};   // holds DropZone references for the current mode
-
         panel.innerHTML = `
             <div class="health-panel">
                 <div class="health-panel-title">${t('verify')}</div>
-                <div class="health-mode-tabs">
-                    <button class="health-mode-tab" data-mode="folders">${t('two_folders')}</button>
-                    <button class="health-mode-tab" data-mode="manifest">${t('json_manifest')}</button>
-                    <button class="health-mode-tab active" data-mode="cert">${t('certificate')}</button>
-                </div>
-                <div id="verify-zones"></div>
-                <div id="verify-result" class="hidden"></div>
+                <div id="verify-src-zone" style="margin-bottom:8px;"></div>
+                <div id="verify-dest-zone"></div>
             </div>
         `;
 
-        const renderZones = () => {
-            const el = document.getElementById('verify-zones');
-            zones = {};
-            if (mode === 'folders') {
-                el.innerHTML = '<div id="verify-src-zone" style="margin-bottom:8px;"></div><div id="verify-dest-zone"></div>';
-                zones.src  = new DropZone(document.getElementById('verify-src-zone'),  { label: t('source_folder'), accept: 'folder' });
-                zones.dest = new DropZone(document.getElementById('verify-dest-zone'), { label: t('dest_folder'),   accept: 'folder' });
-            } else if (mode === 'manifest') {
-                el.innerHTML = '<div id="verify-manifest-zone" style="margin-bottom:8px;"></div><div id="verify-dest2-zone"></div>';
-                zones.manifest = new DropZone(document.getElementById('verify-manifest-zone'), { label: t('json_manifest'), accept: 'file', ext: ['json'] });
-                zones.dest     = new DropZone(document.getElementById('verify-dest2-zone'),    { label: t('dest_folder'),   accept: 'folder' });
-            } else {
-                // cert mode: accept a folder (ferr finds the .ferrcert automatically) or a .ferrcert file
-                el.innerHTML = '<div id="verify-cert-zone" style="margin-bottom:8px;"></div><div id="verify-cert-folder-zone"></div>';
-                zones.cert   = new DropZone(document.getElementById('verify-cert-zone'),        { label: t('cert_or_folder'),   accept: 'any', ext: ['ferrcert'] });
-                zones.folder = new DropZone(document.getElementById('verify-cert-folder-zone'), { label: t('folder_to_verify'), accept: 'folder' });
+        const zones = {
+            src:  new DropZone(document.getElementById('verify-src-zone'),  { label: t('source_folder'), accept: 'folder' }),
+            dest: new DropZone(document.getElementById('verify-dest-zone'), { label: t('dest_folder'),   accept: 'folder' })
+        };
+
+        App.setBottomBarAction(t('verify_btn'), async () => {
+            const src  = zones.src.getPath();
+            const dest = zones.dest.getPath();
+            if (!src || !dest) return App.flash(t('select_folder_first'));
+            Progress.show(t('verify') + '…');
+            try {
+                await Bridge.runVerify(src, dest);
+            } finally {
+                Progress.hide();
             }
-            _bindVerifyAction();
-        };
-
-        const _bindVerifyAction = () => {
-            App.setBottomBarAction(t('verify_btn'), async () => {
-                if (mode === 'folders') {
-                    const src  = zones.src?.getPath();
-                    const dest = zones.dest?.getPath();
-                    if (!src || !dest) return App.flash(t('select_folder_first'));
-                    Progress.show(t('verify') + '…');
-                    try { await Bridge.runVerify(src, dest); } finally { Progress.hide(); }
-
-                } else if (mode === 'manifest') {
-                    const manifest = zones.manifest?.getPath();
-                    const dest     = zones.dest?.getPath();
-                    if (!manifest || !dest) return App.flash(t('select_folder_first'));
-                    Progress.show(t('verify') + '…');
-                    try { await Bridge.runVerify(manifest, dest); } finally { Progress.hide(); }
-
-                } else {
-                    const certOrDir = zones.cert?.getPath();
-                    const folder    = zones.folder?.getPath();
-                    if (!certOrDir || !folder) return App.flash(t('select_folder_first'));
-                    Progress.show(t('verify') + '…');
-                    try { await Bridge.certVerify(certOrDir, folder); } finally { Progress.hide(); }
-                }
-            });
-        };
-
-        renderZones();
-
-        panel.querySelectorAll('.health-mode-tab').forEach(btn => {
-            btn.addEventListener('click', () => {
-                panel.querySelectorAll('.health-mode-tab').forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
-                mode = btn.dataset.mode;
-                renderZones();
-            });
         });
     }
 
@@ -210,75 +160,6 @@ const HealthTab = (() => {
     }
 
     // ── Certificate ────────────────────────────────────────────────────────
-    function _renderCertPanel(panel) {
-        let mode = 'create';
-        let zones = {};   // holds DropZone references for the current mode
-
-        panel.innerHTML = `
-            <div class="health-panel">
-                <div class="health-panel-title">${t('certificate')}</div>
-                <div class="health-mode-tabs">
-                    <button class="health-mode-tab active" data-mode="create">${t('cert_create')}</button>
-                    <button class="health-mode-tab" data-mode="verify">${t('cert_verify_tab')}</button>
-                </div>
-                <div id="cert-zones"></div>
-            </div>
-        `;
-
-        const renderZones = () => {
-            const el = document.getElementById('cert-zones');
-            zones = {};
-            if (mode === 'create') {
-                el.innerHTML = '<div id="cert-src-zone"></div><div id="cert-create-result" class="hidden" style="margin-top:10px;font-size:12px;color:var(--text-secondary);"></div>';
-                zones.src = new DropZone(document.getElementById('cert-src-zone'), { label: t('source_folder'), accept: 'folder' });
-            } else {
-                el.innerHTML = '<div id="cert-file-zone" style="margin-bottom:8px;"></div><div id="cert-verify-folder-zone"></div>';
-                zones.cert   = new DropZone(document.getElementById('cert-file-zone'),          { label: t('cert_file'),        accept: 'file', ext: ['ferrcert'] });
-                zones.folder = new DropZone(document.getElementById('cert-verify-folder-zone'), { label: t('folder_to_verify'), accept: 'folder' });
-            }
-            _bindCertAction();
-        };
-
-        const _bindCertAction = () => {
-            if (mode === 'create') {
-                App.setBottomBarAction(t('generate_cert'), async () => {
-                    const folder = zones.src?.getPath();
-                    if (!folder) return App.flash(t('select_folder_first'));
-                    const resultEl = document.getElementById('cert-create-result');
-                    if (resultEl) resultEl.classList.add('hidden');
-                    Progress.show(t('generate_cert') + '…');
-                    try {
-                        await Bridge.certCreate(folder);
-                        if (resultEl) {
-                            resultEl.textContent = t('cert_created_in') ? t('cert_created_in', { folder }) : `Certificate created in: ${folder}`;
-                            resultEl.classList.remove('hidden');
-                        }
-                    } finally {
-                        Progress.hide();
-                    }
-                });
-            } else {
-                App.setBottomBarAction(t('cert_verify_tab'), async () => {
-                    const cert   = zones.cert?.getPath();
-                    const folder = zones.folder?.getPath();
-                    if (!cert || !folder) return App.flash(t('select_folder_first'));
-                    Progress.show(t('verify') + '…');
-                    try { await Bridge.certVerify(cert, folder); } finally { Progress.hide(); }
-                });
-            }
-        };
-
-        renderZones();
-
-        panel.querySelectorAll('.health-mode-tab').forEach(btn => {
-            btn.addEventListener('click', () => {
-                panel.querySelectorAll('.health-mode-tab').forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
-                mode = btn.dataset.mode;
-                renderZones();
-            });
-        });
-    }
 
     // ── Icons ──────────────────────────────────────────────────────────────
     function _scanIcon() {
@@ -289,9 +170,6 @@ const HealthTab = (() => {
     }
     function _repairIcon() {
         return `<svg viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>`;
-    }
-    function _certIcon() {
-        return `<svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="6"/><path d="M15.477 12.89 17 22l-5-3-5 3 1.523-9.11"/></svg>`;
     }
 
     return { render };

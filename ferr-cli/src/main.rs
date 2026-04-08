@@ -92,6 +92,9 @@ enum Commands {
         dest: PathBuf,
         #[arg(long)]
         quiet: bool,
+        /// Progress output format: "human" (default) or "machine"
+        #[arg(long, value_name = "FORMAT", default_value = "human")]
+        progress_format: String,
     },
     /// Repair corrupted files via PAR2
     Repair { manifest: PathBuf, dest: PathBuf },
@@ -105,6 +108,9 @@ enum Commands {
         since: Option<String>,
         #[arg(long)]
         quiet: bool,
+        /// Progress output format: "human" (default) or "machine"
+        #[arg(long, value_name = "FORMAT", default_value = "human")]
+        progress_format: String,
     },
     /// Watch a mount point and copy automatically on volume detection
     Watch {
@@ -225,6 +231,9 @@ enum CertAction {
         dest: PathBuf,
         #[arg(long)]
         quiet: bool,
+        /// Progress output format: "human" (default) or "machine"
+        #[arg(long, value_name = "FORMAT", default_value = "human")]
+        progress_format: String,
     },
     /// Show the event journal of a .ferrcert (and verify cert integrity)
     Show {
@@ -316,14 +325,16 @@ fn run(cli: Cli) -> anyhow::Result<i32> {
             cert_or_dir,
             dest,
             quiet,
-        } => cmd_verify(cert_or_dir, dest, quiet),
+            progress_format,
+        } => cmd_verify(cert_or_dir, dest, quiet, progress_format),
         Commands::Repair { manifest, dest } => cmd_repair(manifest, dest),
         Commands::Scan {
             dest,
             cert_or_manifest,
             since,
             quiet,
-        } => cmd_scan(dest, cert_or_manifest, since, quiet),
+            progress_format,
+        } => cmd_scan(dest, cert_or_manifest, since, quiet, progress_format),
         Commands::Watch {
             mount_point,
             dest,
@@ -748,7 +759,8 @@ fn cmd_copy(args: CopyArgs) -> anyhow::Result<i32> {
 // cmd_verify
 // ---------------------------------------------------------------------------
 
-fn cmd_verify(cert_or_dir: PathBuf, dest: PathBuf, quiet: bool) -> anyhow::Result<i32> {
+fn cmd_verify(cert_or_dir: PathBuf, dest: PathBuf, quiet: bool, progress_format: String) -> anyhow::Result<i32> {
+    let machine_mode = progress_format == "machine";
     let is_ferrcert = cert_or_dir
         .extension()
         .map(|e| e.eq_ignore_ascii_case("ferrcert"))
@@ -761,13 +773,13 @@ fn cmd_verify(cert_or_dir: PathBuf, dest: PathBuf, quiet: bool) -> anyhow::Resul
 
     // Cas 1 : .ferrcert explicite
     if is_ferrcert {
-        return verify_via_cert(&cert_or_dir, &dest, quiet);
+        return verify_via_cert(&cert_or_dir, &dest, quiet, machine_mode);
     }
 
     // Cas 2 : dossier → cherche le cert automatiquement
     if is_dir {
         if let Some(cert_path) = ferr_cert::find_cert(&cert_or_dir) {
-            return verify_via_cert(&cert_path, &dest, quiet);
+            return verify_via_cert(&cert_path, &dest, quiet, machine_mode);
         }
         // Pas de cert → comparaison par répertoire (legacy)
         if !quiet {
@@ -784,7 +796,7 @@ fn cmd_verify(cert_or_dir: PathBuf, dest: PathBuf, quiet: bool) -> anyhow::Resul
         if let Some(b) = &bar {
             b.finish_and_clear();
         }
-        return display_verify_report(&report, quiet);
+        return display_verify_report(&report, quiet, machine_mode);
     }
 
     // Cas 3 : manifest JSON legacy
@@ -802,7 +814,7 @@ fn cmd_verify(cert_or_dir: PathBuf, dest: PathBuf, quiet: bool) -> anyhow::Resul
         if let Some(b) = &bar {
             b.finish_and_clear();
         }
-        return display_verify_report(&report, quiet);
+        return display_verify_report(&report, quiet, machine_mode);
     }
 
     anyhow::bail!(
@@ -811,11 +823,34 @@ fn cmd_verify(cert_or_dir: PathBuf, dest: PathBuf, quiet: bool) -> anyhow::Resul
     )
 }
 
-fn verify_via_cert(cert_path: &PathBuf, dest: &PathBuf, quiet: bool) -> anyhow::Result<i32> {
-    let bar = make_spinner("Verifying certificate…", quiet);
+fn verify_via_cert(cert_path: &PathBuf, dest: &PathBuf, quiet: bool, machine_mode: bool) -> anyhow::Result<i32> {
+    let bar = if machine_mode { None } else { make_spinner("Verifying certificate…", quiet) };
     let result = ferr_cert::cert_verify(cert_path, dest, quiet)?;
     if let Some(b) = &bar {
         b.finish_and_clear();
+    }
+
+    if machine_mode {
+        let issues_count = result.issues.len();
+        println!(
+            "VERIFY_RESULT:OK|{}|0|{}",
+            result.checked_files, issues_count
+        );
+        for issue in &result.issues {
+            let sev = match issue.severity {
+                ferr_cert::IssueSeverity::Critical => "CRITICAL",
+                ferr_cert::IssueSeverity::Minor => "MINOR",
+            };
+            println!(
+                "VERIFY_ISSUE:{}|{:?}|{}|{}",
+                sev, issue.kind, issue.path, issue.detail
+            );
+        }
+        return Ok(match result.result {
+            ferr_cert::CertResult::Pass => 0,
+            ferr_cert::CertResult::PassWithMinor => 1,
+            ferr_cert::CertResult::Fail => 2,
+        });
     }
 
     if !quiet {
@@ -887,7 +922,22 @@ fn verify_via_cert(cert_path: &PathBuf, dest: &PathBuf, quiet: bool) -> anyhow::
     })
 }
 
-fn display_verify_report(report: &ferr_verify::VerifyReport, quiet: bool) -> anyhow::Result<i32> {
+fn display_verify_report(report: &ferr_verify::VerifyReport, quiet: bool, machine_mode: bool) -> anyhow::Result<i32> {
+    if machine_mode {
+        println!(
+            "VERIFY_RESULT:OK|{}|{}|{}",
+            report.ok.len(),
+            report.missing.len(),
+            report.corrupted.len()
+        );
+        for entry in &report.missing {
+            println!("VERIFY_ISSUE:CRITICAL|missing|{}|File missing", entry.display());
+        }
+        for entry in &report.corrupted {
+            println!("VERIFY_ISSUE:CRITICAL|corrupted|{}|Hash mismatch", entry.display());
+        }
+        return Ok(report.exit_code());
+    }
     if !quiet {
         println!(
             "\n  {} {} ok  {} missing  {} corrupted  ({:.1}s)",
@@ -950,7 +1000,9 @@ fn cmd_scan(
     cert_or_manifest: Option<PathBuf>,
     since: Option<String>,
     quiet: bool,
+    progress_format: String,
 ) -> anyhow::Result<i32> {
+    let machine_mode = progress_format == "machine";
     let since_dt = since
         .as_deref()
         .map(|s| chrono::DateTime::parse_from_rfc3339(s).map(|d| d.with_timezone(&chrono::Utc)))
@@ -991,9 +1043,9 @@ fn cmd_scan(
     };
 
     match reference {
-        ScanReference::Cert(cert_path) => scan_via_cert(&cert_path, &dest, since_dt, quiet),
+        ScanReference::Cert(cert_path) => scan_via_cert(&cert_path, &dest, since_dt, quiet, machine_mode),
         ScanReference::Manifest(manifest_path) => {
-            scan_via_manifest(&manifest_path, &dest, since_dt, quiet)
+            scan_via_manifest(&manifest_path, &dest, since_dt, quiet, machine_mode)
         }
     }
 }
@@ -1008,6 +1060,7 @@ fn scan_via_cert(
     dest: &PathBuf,
     since_dt: Option<chrono::DateTime<chrono::Utc>>,
     quiet: bool,
+    machine_mode: bool,
 ) -> anyhow::Result<i32> {
     let cert = ferr_cert::cert_load(cert_path)?;
 
@@ -1025,9 +1078,13 @@ fn scan_via_cert(
         _ => Box::new(ferr_hash::XxHasher),
     };
 
-    let bar = make_spinner("Scanning for bit rot…", quiet);
+    let bar = if machine_mode { None } else { make_spinner("Scanning for bit rot…", quiet) };
 
     let report = ferr_verify::scan_bitrot_cert(dest, &cert, hasher.as_ref(), since_dt, |p| {
+        if machine_mode {
+            println!("SCAN_PROGRESS:{}/{}|{}", p.scanned, p.total, p.current.display());
+            return;
+        }
         if let Some(b) = &bar {
             b.set_message(format!(
                 "[{}/{}] {}",
@@ -1040,6 +1097,14 @@ fn scan_via_cert(
 
     if let Some(b) = &bar {
         b.finish_and_clear();
+    }
+
+    if machine_mode {
+        println!("SCAN_RESULT:OK|{}|{}", report.scanned, report.corrupted.len());
+        for entry in &report.corrupted {
+            println!("SCAN_ISSUE:CRITICAL|corrupted|{}|Bit rot detected", entry.path.display());
+        }
+        return Ok(if report.corrupted.is_empty() { 0 } else { 1 });
     }
 
     if !quiet {
@@ -1072,13 +1137,18 @@ fn scan_via_manifest(
     dest: &PathBuf,
     since_dt: Option<chrono::DateTime<chrono::Utc>>,
     quiet: bool,
+    machine_mode: bool,
 ) -> anyhow::Result<i32> {
     let manifest = ferr_report::load_manifest(manifest_path)?;
     let hasher: Box<dyn ferr_hash::Hasher> = Box::new(ferr_hash::XxHasher);
 
-    let bar = make_spinner("Scanning for bit rot…", quiet);
+    let bar = if machine_mode { None } else { make_spinner("Scanning for bit rot…", quiet) };
 
     let report = ferr_verify::scan_bitrot(dest, &manifest, hasher.as_ref(), since_dt, |p| {
+        if machine_mode {
+            println!("SCAN_PROGRESS:{}/{}|{}", p.scanned, p.total, p.current.display());
+            return;
+        }
         if let Some(b) = &bar {
             b.set_message(format!(
                 "[{}/{}] {}",
@@ -1091,6 +1161,14 @@ fn scan_via_manifest(
 
     if let Some(b) = &bar {
         b.finish_and_clear();
+    }
+
+    if machine_mode {
+        println!("SCAN_RESULT:OK|{}|{}", report.scanned, report.corrupted.len());
+        for entry in &report.corrupted {
+            println!("SCAN_ISSUE:CRITICAL|corrupted|{}|Bit rot detected", entry.path.display());
+        }
+        return Ok(if report.corrupted.is_empty() { 0 } else { 1 });
     }
 
     if !quiet {
@@ -1544,9 +1622,15 @@ fn cmd_cert(action: CertAction) -> anyhow::Result<i32> {
         }
 
         // ── cert verify ───────────────────────────────────────────────────
-        CertAction::Verify { cert, dest, quiet } => {
+        CertAction::Verify {
+            cert,
+            dest,
+            quiet,
+            progress_format,
+        } => {
             let cert_path = resolve_cert_path(&cert)?;
-            verify_via_cert(&cert_path, &dest, quiet)
+            let machine_mode = progress_format == "machine";
+            verify_via_cert(&cert_path, &dest, quiet, machine_mode)
         }
 
         // ── cert show ─────────────────────────────────────────────────────

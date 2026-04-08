@@ -16,15 +16,15 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    width: 40px;
-    height: 44px;
-    border-radius: 10px;
+    width: 56px;
+    height: 50px;
+    border-radius: 12px;
     cursor: pointer;
     color: var(--text-secondary);
     transition: background 0.12s, color 0.12s;
     border: none;
     background: none;
-    gap: 3px;
+    gap: 4px;
     padding: 0;
 }
 
@@ -39,14 +39,15 @@
 }
 
 .sidebar-item svg {
-    width: 18px;
-    height: 18px;
+    width: 20px;
+    height: 20px;
     flex-shrink: 0;
     stroke: currentColor;
     fill: none;
     stroke-width: 1.75;
     stroke-linecap: round;
     stroke-linejoin: round;
+    overflow: visible;
 }
 
 .sidebar-item span {
@@ -55,6 +56,9 @@
     letter-spacing: 0.02em;
     text-transform: uppercase;
     line-height: 1;
+    white-space: nowrap;
+    text-align: center;
+    width: 100%;
 }
 
 .sidebar-spacer {

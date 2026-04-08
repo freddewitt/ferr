@@ -4,6 +4,9 @@
   "health":          "Santé",
   "history":         "Historique",
   "settings":        "Réglages",
+  "certificate":     "Certificat",
+  "certificat":      "Certificat",
+  "log":             "Log",
   "quit":            "Quitter",
 
   "source":          "Source",
@@ -62,8 +65,8 @@
   "select_repair_folder": "Choisir le dossier à réparer",
   "repair_confirm":  "La réparation modifie les fichiers sur place. Continuer ?",
 
-  "cert_create":     "Créer",
-  "cert_verify_tab": "Vérifier",
+  "cert_create":     "Créer un certificat",
+  "cert_verify_tab": "Vérifier un certificat",
   "generate_cert":   "Générer",
 
   "search":          "Rechercher des sessions…",
@@ -104,11 +107,19 @@
 
   "pdf_report":       "Générer un rapport PDF",
   "pdf_desc":         "Créer un rapport PDF après chaque copie",
+  "json_manifest_toggle": "Créer le manifeste JSON",
+  "json_manifest_desc": "Format hérité pour compatibilité avec tiers",
 
   "no_profiles":      "Aucun profil sauvegardé.",
   "save_profile":     "Sauvegarder",
   "profile_name":     "Nom du profil",
   "load":             "Charger",
+  "files":            "Fichiers",
+  "bytes":            "Octets",
+  "errors":           "Erreurs",
+  "show_manifest":    "Voir le manifeste",
+  "close":            "Fermer",
+  "operation_result": "Résultat de l'opération",
 
   "preparing":        "Préparation…",
   "copying":          "Copie en cours…",

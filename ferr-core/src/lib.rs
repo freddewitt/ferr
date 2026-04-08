@@ -952,7 +952,7 @@ fn collect_empty_dirs(dir: &Path, out: &mut Vec<PathBuf>) -> anyhow::Result<()> 
         // Skip ferr internal entries
         if let Some(name) = path.file_name() {
             let n = name.to_string_lossy();
-            if n == "ferr-manifest.json" || n == "_par2" || n.starts_with("_ferr_logs_") {
+            if n == "ferr-manifest.json" || n == "_par2" || n.starts_with("_ferr_logs_") || is_system_noise(&n) {
                 continue;
             }
         }

@@ -64,6 +64,7 @@ const SettingsTab = (() => {
             <div class="settings-section">
                 <div class="settings-section-title">${t('reports')}</div>
                 ${_toggle('pdfReport', t('pdf_report'), t('pdf_desc'), s.pdfReport)}
+                ${_toggle('jsonManifest', t('json_manifest_toggle'), t('json_manifest_desc'), s.jsonManifest)}
             </div>
 
             <!-- Profiles -->
@@ -159,6 +160,7 @@ const SettingsTab = (() => {
                 btn.classList.add('active');
                 await Settings.set('language', btn.dataset.val);
                 await I18n.load(btn.dataset.val);
+                App.updateLanguage();
             });
         });
 

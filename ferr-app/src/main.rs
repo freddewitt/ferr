@@ -32,6 +32,7 @@ fn main() {
             commands::pick_file,
             commands::pick_save_location,
             commands::quit_app,
+            commands::open_path,
         ])
         .run(tauri::generate_context!())
         .expect("error while running ferr-app");

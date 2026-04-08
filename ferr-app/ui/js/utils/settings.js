@@ -15,6 +15,7 @@ const Settings = (() => {
         preserveMetadata: true,
         pdfReport:       true,
         notifications:   true,
+        jsonManifest:    false,
     };
 
     let _cache = { ...DEFAULTS };

@@ -175,6 +175,8 @@ const Bridge = (() => {
             ? Promise.resolve(_mockVolumes())
             : invoke('get_volumes'),
 
+        openPath: (path) => invoke('open_path', { path }),
+
         // Event subscriptions
         onProgress: (cb) => { _progressCb = cb; return listen('ferr-progress', cb); },
         onError:    (cb) => { _errorCb = cb;    return listen('ferr-error', cb); },

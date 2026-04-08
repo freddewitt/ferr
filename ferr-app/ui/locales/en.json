@@ -4,6 +4,9 @@
   "health":          "Health",
   "history":         "History",
   "settings":        "Settings",
+  "certificate":     "Certificate",
+  "certificat":      "Certificate",
+  "log":             "Log",
   "quit":            "Quit",
 
   "source":          "Source",
@@ -62,8 +65,8 @@
   "select_repair_folder": "Select folder to repair",
   "repair_confirm":  "Repair will modify files in place. Continue?",
 
-  "cert_create":     "Create",
-  "cert_verify_tab": "Verify",
+  "cert_create":     "Create Certificate",
+  "cert_verify_tab": "Verify Certificate",
   "generate_cert":   "Generate",
 
   "search":          "Search sessions…",
@@ -104,11 +107,19 @@
 
   "pdf_report":       "Generate PDF report",
   "pdf_desc":         "Create a PDF report after each copy operation",
+  "json_manifest_toggle": "Create JSON manifest",
+  "json_manifest_desc": "Legacy manifest format for third-party compatibility",
 
   "no_profiles":      "No saved profiles.",
   "save_profile":     "Save current",
   "profile_name":     "Profile name",
   "load":             "Load",
+  "files":            "Files",
+  "bytes":            "Bytes",
+  "errors":           "Errors",
+  "show_manifest":    "Show Manifest",
+  "close":            "Close",
+  "operation_result": "Operation Result",
 
   "preparing":        "Preparing…",
   "copying":          "Copying…",
