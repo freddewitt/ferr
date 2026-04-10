@@ -337,19 +337,13 @@ const App = (() => {
         if (!el) {
             el = document.createElement('div');
             el.id = 'flash-msg';
-            el.style.cssText = `
-                position:fixed; bottom:68px; left:50%; transform:translateX(-50%);
-                background:var(--bg-tertiary); border:1px solid var(--border);
-                border-radius:8px; padding:8px 16px; font-size:13px;
-                color:var(--text-primary); z-index:300; pointer-events:none;
-                transition:opacity 0.3s;
-            `;
+            el.className = 'flash-msg';
             document.body.appendChild(el);
         }
         el.textContent = msg;
-        el.style.opacity = '1';
+        el.classList.add('visible');
         clearTimeout(el._timer);
-        el._timer = setTimeout(() => el.style.opacity = '0', 2500);
+        el._timer = setTimeout(() => el.classList.remove('visible'), 2500);
     }
 
     function _tabTitle(id) {

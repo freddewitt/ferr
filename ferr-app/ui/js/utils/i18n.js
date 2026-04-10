@@ -17,8 +17,9 @@ const I18n = (() => {
     function t(key, vars) {
         let str = _strings[key] ?? key;
         if (vars) {
+            // split/join évite de créer un RegExp par variable (pas de GC pressure)
             for (const [k, v] of Object.entries(vars)) {
-                str = str.replace(new RegExp(`\\{${k}\\}`, 'g'), v);
+                str = str.split(`{${k}}`).join(String(v));
             }
         }
         return str;

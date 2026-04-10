@@ -88,7 +88,6 @@ pub fn generate_report(manifest: &ferr_report::Manifest, output: &Path) -> anyho
     let col_w_path = 90.0_f32;
     let col_w_size = 22.0_f32;
     let col_w_hash = 38.0_f32;
-    let _col_w_status = 25.0_f32;
     let x_path = MARGIN;
     let x_size = x_path + col_w_path;
     let x_hash = x_size + col_w_size;

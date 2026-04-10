@@ -76,6 +76,31 @@ pub fn human_size(bytes: u64) -> String {
     }
 }
 
+/// Retourne le nom d'hôte de la machine.
+///
+/// Tente d'abord libc::gethostname (Unix) pour éviter la dépendance à la
+/// variable d'environnement $HOSTNAME (souvent absente dans les subprocesses).
+/// Replie sur HOSTNAME / COMPUTERNAME, puis "unknown".
+pub fn get_hostname() -> String {
+    #[cfg(unix)]
+    {
+        use std::ffi::CStr;
+        let mut buf = [0u8; 256];
+        let ret = unsafe { libc::gethostname(buf.as_mut_ptr() as *mut libc::c_char, buf.len()) };
+        if ret == 0 {
+            if let Ok(name) = CStr::from_bytes_until_nul(&buf) {
+                let s = name.to_string_lossy().to_string();
+                if !s.is_empty() {
+                    return s;
+                }
+            }
+        }
+    }
+    std::env::var("HOSTNAME")
+        .or_else(|_| std::env::var("COMPUTERNAME"))
+        .unwrap_or_else(|_| "unknown".to_string())
+}
+
 pub fn save_manifest(m: &Manifest, path: &Path) -> anyhow::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;

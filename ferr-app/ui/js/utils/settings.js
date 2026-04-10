@@ -24,9 +24,21 @@ const Settings = (() => {
         if (window.__TAURI__) {
             try {
                 const store = await window.__TAURI__.store.load(STORE_PATH);
-                for (const key of Object.keys(DEFAULTS)) {
-                    const val = await store.get(key);
-                    if (val !== null && val !== undefined) _cache[key] = val;
+                // Charger toutes les entrées en un seul appel IPC au lieu de N appels
+                // (tauri-plugin-store v2 expose store.entries())
+                try {
+                    const entries = await store.entries();
+                    for (const [key, val] of entries) {
+                        if (key in DEFAULTS && val !== null && val !== undefined) {
+                            _cache[key] = val;
+                        }
+                    }
+                } catch {
+                    // Fallback : appels individuels (tauri-plugin-store v1 ou erreur)
+                    for (const key of Object.keys(DEFAULTS)) {
+                        const val = await store.get(key);
+                        if (val !== null && val !== undefined) _cache[key] = val;
+                    }
                 }
             } catch {
                 _loadFromLocalStorage();

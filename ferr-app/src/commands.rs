@@ -293,24 +293,32 @@ pub fn quit_app(app: tauri::AppHandle) {
 
 #[tauri::command]
 pub fn open_path(path: String) -> Result<(), String> {
+    // Valider que c'est un chemin absolu — empêche l'ouverture d'URLs arbitraires
+    // (ex: "http://evil.com" serait ouvert par `open` sur macOS)
+    let p = std::path::Path::new(&path);
+    if !p.is_absolute() {
+        return Err(format!(
+            "open_path: seuls les chemins absolus sont acceptés (reçu: {path})"
+        ));
+    }
     #[cfg(target_os = "macos")]
     {
         std::process::Command::new("open")
-            .arg(path)
+            .arg(&path)
             .spawn()
             .map_err(|e| e.to_string())?;
     }
     #[cfg(target_os = "windows")]
     {
         std::process::Command::new("explorer")
-            .arg(path)
+            .arg(&path)
             .spawn()
             .map_err(|e| e.to_string())?;
     }
     #[cfg(target_os = "linux")]
     {
         std::process::Command::new("xdg-open")
-            .arg(path)
+            .arg(&path)
             .spawn()
             .map_err(|e| e.to_string())?;
     }

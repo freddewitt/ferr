@@ -99,6 +99,7 @@ fn sync_file(path: &Path) -> anyhow::Result<()> {
 /// - `rel_path` : chemin relatif utilisé pour `Destination::write_file`
 /// - `resume_manifest` : si fourni et que le fichier est déjà OK, la copie est ignorée
 /// - `on_progress` : appelé avec le nombre d'octets lus depuis la source
+/// - `src_hash_hint` : hash source pré-calculé (évite un double-hash si déjà connu, ex. dedup)
 pub fn copy_file(
     src: &Path,
     rel_path: &Path,
@@ -107,6 +108,7 @@ pub fn copy_file(
     resume_manifest: Option<&ferr_report::Manifest>,
     on_progress: impl Fn(u64),
     preserve_metadata: bool,
+    src_hash_hint: Option<ferr_hash::HashResult>,
 ) -> anyhow::Result<TransferResult> {
     // --- Vérification reprise ------------------------------------------------
     if let Some(manifest) = resume_manifest {
@@ -140,8 +142,11 @@ pub fn copy_file(
         }
     }
 
-    // --- Hash source en streaming (aucun tampon complet en RAM) --------------
-    let src_hash = hasher.hash_file(src)?;
+    // --- Hash source (réutilise le hint si disponible, évite un double-hash) -
+    let src_hash = match src_hash_hint {
+        Some(h) => h,
+        None => hasher.hash_file(src)?,
+    };
     on_progress(src_hash.bytes_read);
 
     // --- Écriture parallèle + vérification sur toutes les destinations -------
@@ -307,6 +312,7 @@ mod tests {
             None,
             |_| {},
             false,
+            None,
         )
         .unwrap();
 
@@ -349,6 +355,7 @@ mod tests {
             None,
             |_| {},
             false,
+            None,
         )
         .unwrap();
 
@@ -403,6 +410,7 @@ mod tests {
             Some(&manifest),
             |_| {},
             false,
+            None,
         )
         .unwrap();
 
@@ -436,6 +444,7 @@ mod tests {
             None,
             |_| {},
             false,
+            None,
         )
         .unwrap();
 

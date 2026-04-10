@@ -611,10 +611,10 @@ pub fn run_copy(
             rel.to_path_buf()
         };
 
-        // Déduplication
+        // Déduplication — hash calculé une seule fois, réutilisé par copy_file si non-skip
+        let mut src_hash_hint: Option<ferr_hash::HashResult> = None;
         if job.dedup {
-            let temp_hash = hasher.hash_file(src_file);
-            if let Ok(h) = temp_hash {
+            if let Ok(h) = hasher.hash_file(src_file) {
                 if let Ok(records) = ferr_session::find_file_by_hash(&h.hex) {
                     if !records.is_empty() {
                         dedup_skipped += 1;
@@ -640,6 +640,11 @@ pub fn run_copy(
                         });
                         continue;
                     }
+                    // Fichier non dupliqué — on conserve le hash pour copy_file
+                    src_hash_hint = Some(h);
+                } else {
+                    // Erreur DB — on conserve quand même le hash calculé
+                    src_hash_hint = Some(h);
                 }
             }
         }
@@ -682,6 +687,7 @@ pub fn run_copy(
                 });
             },
             job.preserve_metadata,
+            src_hash_hint,
         );
 
         match result {

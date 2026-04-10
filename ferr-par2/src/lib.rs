@@ -354,7 +354,7 @@ impl Par2View {
     fn create(par2_index: &Path, target_dir: &Path) -> anyhow::Result<Self> {
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_default()
             .as_nanos();
         let view_path = std::env::temp_dir().join(format!("par2_view_{}", timestamp));
         std::fs::create_dir_all(&view_path)?;

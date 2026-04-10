@@ -224,39 +224,46 @@ pub fn record_session(manifest: &ferr_report::Manifest) -> anyhow::Result<Sessio
 
 pub fn list_sessions(filter: SessionFilter) -> anyhow::Result<Vec<Session>> {
     let conn = open_db()?;
-    let limit = filter.limit.unwrap_or(100);
+    let limit = filter.limit.unwrap_or(100) as i64;
 
-    let mut query = "SELECT id, date, source, destinations, total_files, total_bytes,
-                            duration_secs, status, manifest_path, hash_algo
-                     FROM sessions
-                     WHERE 1=1"
-        .to_string();
+    // Construire la requête et les valeurs de paramètres de façon cohérente.
+    // On utilise params_from_iter pour ne binder que les params réellement
+    // présents dans la requête (évite le bug "Invalid parameter name").
+    let mut conditions: Vec<&str> = Vec::new();
+    let mut values: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
 
     if filter.since.is_some() {
-        query.push_str(" AND date >= ?1");
+        conditions.push("date >= ?");
+        values.push(Box::new(filter.since.as_deref().unwrap_or("").to_string()));
     }
     if filter.source.is_some() {
-        query.push_str(" AND source LIKE ?2");
+        conditions.push("source LIKE ?");
+        values.push(Box::new(
+            filter
+                .source
+                .as_ref()
+                .map(|s| format!("%{s}%"))
+                .unwrap_or_default(),
+        ));
     }
-    query.push_str(" ORDER BY id DESC LIMIT ?3");
+    values.push(Box::new(limit));
 
-    let mut stmt = conn.prepare(&query)?;
-
-    let rows = match (&filter.since, &filter.source) {
-        (Some(since), Some(src)) => stmt.query_map(
-            params![since, format!("%{src}%"), limit as i64],
-            row_to_session,
-        )?,
-        (Some(since), None) => stmt.query_map(params![since, "", limit as i64], row_to_session)?,
-        (None, Some(src)) => stmt.query_map(
-            params!["", format!("%{src}%"), limit as i64],
-            row_to_session,
-        )?,
-        (None, None) => stmt.query_map(params!["", "", limit as i64], row_to_session)?,
+    let where_clause = if conditions.is_empty() {
+        String::new()
+    } else {
+        format!("WHERE {} ", conditions.join(" AND "))
     };
 
-    let sessions: Result<Vec<_>, _> = rows.collect();
-    Ok(sessions?)
+    let query = format!(
+        "SELECT id, date, source, destinations, total_files, total_bytes,
+                duration_secs, status, manifest_path, hash_algo
+         FROM sessions
+         {where_clause}ORDER BY id DESC LIMIT ?"
+    );
+
+    let mut stmt = conn.prepare(&query)?;
+    let rows = stmt.query_map(rusqlite::params_from_iter(values.iter()), row_to_session)?;
+    Ok(rows.collect::<Result<Vec<_>, _>>()?)
 }
 
 pub fn get_session(id: SessionId) -> anyhow::Result<Option<Session>> {

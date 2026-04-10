@@ -3,6 +3,17 @@
 const Modal = (() => {
     let _overlay = null;
 
+    /** Échappe les caractères HTML pour prévenir les injections XSS. */
+    function _esc(s) {
+        if (s == null) return '';
+        return String(s)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
     function init() {
         if (_overlay) return;
         _overlay = document.createElement('div');
@@ -45,34 +56,34 @@ const Modal = (() => {
             <div class="modal">
                 <div class="modal-header">
                     <div class="modal-icon">${_getIcon(icon)}</div>
-                    <div class="modal-title">${title}</div>
+                    <div class="modal-title">${_esc(title)}</div>
                 </div>
                 <div class="modal-body">
                     <div class="modal-summary">
                         <div class="summary-item">
                             <div class="summary-label">${t('files')}</div>
-                            <div class="summary-value" id="modal-val-files">${files}</div>
+                            <div class="summary-value" id="modal-val-files">${_esc(files)}</div>
                         </div>
                         <div class="summary-item">
                             <div class="summary-label">${t('bytes')}</div>
-                            <div class="summary-value" id="modal-val-bytes">${bytes}</div>
+                            <div class="summary-value" id="modal-val-bytes">${_esc(bytes)}</div>
                         </div>
                         <div class="summary-item">
                             <div class="summary-label">${t('errors')}</div>
-                            <div class="summary-value" id="modal-val-errors" style="color:${errors > 0 ? 'var(--danger)' : 'inherit'}">${errors}</div>
+                            <div class="summary-value" id="modal-val-errors" style="color:${errors > 0 ? 'var(--danger)' : 'inherit'}">${_esc(errors)}</div>
                         </div>
                     </div>
-                    ${msg ? `<div class="modal-msg">${msg}</div>` : ''}
+                    ${msg ? `<div class="modal-msg">${_esc(msg)}</div>` : ''}
                     ${opts.issues && opts.issues.length > 0 ? `
                         <div class="modal-issues">
                             ${opts.issues.map(i => `
-                                <div class="issue-item severity-${i.severity.toLowerCase()}">
+                                <div class="issue-item severity-${_esc(i.severity.toLowerCase())}">
                                     <div class="issue-meta">
-                                        <span class="issue-badge">${i.severity}</span>
-                                        <span class="issue-kind">${i.kind}</span>
+                                        <span class="issue-badge">${_esc(i.severity)}</span>
+                                        <span class="issue-kind">${_esc(i.kind)}</span>
                                     </div>
-                                    <div class="issue-path">${i.path}</div>
-                                    <div class="issue-detail">${i.detail}</div>
+                                    <div class="issue-path">${_esc(i.path)}</div>
+                                    <div class="issue-detail">${_esc(i.detail)}</div>
                                 </div>
                             `).join('')}
                         </div>

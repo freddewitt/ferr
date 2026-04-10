@@ -524,17 +524,27 @@ fn sign_cert(cert: &mut FerrCert) -> Result<()> {
 }
 
 /// Vérifie l'intégrité d'un `FerrCert` déjà chargé en mémoire.
+///
+/// Évite de cloner le struct (potentiellement grand via `tree: Vec<TreeEntry>`) :
+/// sérialise d'abord, puis remplace la valeur stockée du hash par PLACEHOLDER via
+/// une substitution de chaîne — équivalent à ce que fait `sign_cert`.
 fn check_integrity_of(cert: &FerrCert) -> Result<bool> {
     let stored = cert.cert_hash.clone();
-    let mut copy = cert.clone();
-    copy.cert_hash = PLACEHOLDER.to_string();
-    let compact = serde_json::to_string(&copy).context("Cannot serialize cert for verification")?;
-    let hash_bytes = Sha256::digest(compact.as_bytes());
+    let json = serde_json::to_string(cert).context("Cannot serialize cert for verification")?;
+    let needle = format!(r#""cert_hash":"{}""#, stored);
+    let replacement = format!(r#""cert_hash":"{}""#, PLACEHOLDER);
+    let json_placeholder = json.replacen(&needle, &replacement, 1);
+    let hash_bytes = Sha256::digest(json_placeholder.as_bytes());
     Ok(hex_encode(&hash_bytes) == stored)
 }
 
 fn hex_encode(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
+    use std::fmt::Write as _;
+    let mut s = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        write!(&mut s, "{b:02x}").unwrap(); // infaillible sur String
+    }
+    s
 }
 
 // ---------------------------------------------------------------------------
@@ -720,10 +730,9 @@ fn make_hasher(algo: &str) -> Box<dyn ferr_hash::Hasher> {
     }
 }
 
+/// Délègue à ferr_report::get_hostname() (implémentation libc+env).
 fn get_hostname() -> String {
-    std::env::var("HOSTNAME")
-        .or_else(|_| std::env::var("COMPUTERNAME"))
-        .unwrap_or_else(|_| "unknown".to_string())
+    ferr_report::get_hostname()
 }
 
 // ---------------------------------------------------------------------------
@@ -783,10 +792,7 @@ mod tests {
         make_test_tree(&base);
         let cert_path = cert_create(&base, None, HashAlgo::XxHash64).unwrap();
 
-        // Tamper with the cert file
-        let mut content = fs::read_to_string(&cert_path).unwrap();
-        content = content.replace("hello ferr", "TAMPERED"); // change a hash value
-                                                             // Actually modify the cert_hash field directly to simulate tampering
+        // Tamper with the cert file — modifie le detail d'un event sans re-signer
         let cert = cert_load(&cert_path).unwrap();
         let mut tampered = cert.clone();
         tampered.events[0].detail = "TAMPERED".to_string();
