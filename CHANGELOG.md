@@ -5,6 +5,15 @@ All notable changes to the **ferr** project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-04-20
+
+### Added
+- **New Application Identity**: Replaced placeholder icons with a custom high-resolution logo across all platforms (macOS, Windows, Linux).
+- **Icon Generation Pipeline**: Integrated a full suite of optimized icons (ICO, ICNS, and multi-scale PNGs) into the build process.
+
+### Changed
+- Updated all workspace crates to version `0.5.0`.
+
 ## [0.4.0] - 2026-04-08
 
 ### Added
